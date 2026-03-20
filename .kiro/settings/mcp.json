@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "postgres": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-postgres",
+        "postgresql://postgres:Luisfer_19735@db.owdkopjaobwwozfagwpu.supabase.co:5432/postgres"
+      ],
+      "disabled": true,
+      "autoApprove": []
+    }
+  }
+}
