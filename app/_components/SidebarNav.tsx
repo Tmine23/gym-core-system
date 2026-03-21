@@ -150,14 +150,14 @@ const groups: NavGroup[] = [
         ),
       },
       {
-        href: "/reportes",
-        label: "Reportes / Caja",
-        soon: true,
+        href: "/caja",
+        label: "Caja",
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M3 3v18h18" />
-              <path d="M7 16l4-4 4 4 4-4" />
+              <rect x="2" y="6" width="20" height="13" rx="2" />
+              <path d="M2 10h20" />
+              <path d="M6 14h2M10 14h2" />
             </svg>
           </Icon>
         ),

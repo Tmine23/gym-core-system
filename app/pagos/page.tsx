@@ -76,7 +76,9 @@ function toBoDate(iso: string) {
 }
 function formatDate(iso: string) {
   if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("es-BO", { day: "2-digit", month: "short", year: "numeric" });
+  // Parsear como fecha local (sin conversión UTC) agregando hora noon para evitar drift
+  const d = iso.includes("T") ? new Date(iso) : new Date(iso + "T12:00:00");
+  return d.toLocaleDateString("es-BO", { day: "2-digit", month: "short", year: "numeric", timeZone: TZ });
 }
 function formatDateTime(iso: string) {
   return new Date(iso).toLocaleString("es-BO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: TZ });
@@ -208,7 +210,6 @@ function HistorialPanel({ socioId, socioNombre, sucursal, onClose }: {
     <div className="fixed inset-0 z-50 flex justify-end">
       <button className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} aria-label="Cerrar" />
       <div className="relative w-full max-w-md h-full bg-[#020617] border-l border-[#1e293b] flex flex-col shadow-2xl animate-[slideInRight_0.25s_ease]">
-        {/* Header */}
         <div className="flex items-center justify-between gap-3 border-b border-[#1e293b] px-5 py-4 shrink-0">
           <div className="flex items-center gap-3">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-brand-green/25 bg-brand-green/10 text-brand-green"><UserIcon /></span>
@@ -219,8 +220,6 @@ function HistorialPanel({ socioId, socioNombre, sucursal, onClose }: {
           </div>
           <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-full border border-[#1e293b] bg-white/5 text-slate-400 hover:text-slate-100"><XIcon /></button>
         </div>
-
-        {/* Stats */}
         <div className="grid grid-cols-2 gap-3 px-5 py-4 border-b border-[#1e293b] shrink-0">
           <div className="rounded-2xl border border-[#1e293b] bg-white/5 px-3 py-2.5">
             <div className="text-[10px] uppercase tracking-widest text-slate-500">Total BOB</div>
@@ -231,8 +230,6 @@ function HistorialPanel({ socioId, socioNombre, sucursal, onClose }: {
             <div className="text-base font-bold text-sky-400">{fmtMoney(totalUsd, "USD")}</div>
           </div>
         </div>
-
-        {/* Lista */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">
           {loading ? (
             <p className="text-sm text-slate-500 text-center py-8">Cargando…</p>
@@ -290,6 +287,7 @@ export default function PagosPage() {
 
   // Modal state
   const [showModal, setShowModal] = useState(false);
+  // steps: 0=buscar+ficha, 1=fecha inicio, 2=plan, 3=pago+factura
   const [step, setStep] = useState(0);
   const [socios, setSocios] = useState<SocioSearch[]>([]);
   const [socioSearch, setSocioSearch] = useState("");
@@ -297,12 +295,17 @@ export default function PagosPage() {
   const [planes, setPlanes] = useState<PlanRow[]>([]);
   const [planSel, setPlanSel] = useState<PlanRow | null>(null);
   const [suscActiva, setSuscActiva] = useState<SuscripcionActiva | null>(null);
+  // null = no decidido, true = sí renovar, false = no (cancelar)
+  const [confirmarRenovacion, setConfirmarRenovacion] = useState<boolean | null>(null);
+  const [fechaInicioPago, setFechaInicioPago] = useState("");
   const [monto, setMonto] = useState("");
   const [moneda, setMoneda] = useState<Moneda>("BOB");
   const [metodo, setMetodo] = useState<MetodoPago>("EFECTIVO");
   const [referencia, setReferencia] = useState("");
   const [nitCi, setNitCi] = useState("");
   const [razonSocial, setRazonSocial] = useState("");
+  const [cufd, setCufd] = useState("");
+  const [codAutorizacion, setCodAutorizacion] = useState("");
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -358,11 +361,15 @@ export default function PagosPage() {
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paginated = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
-  // Modal helpers
+  const rand12 = () => Array.from({ length: 12 }, () => Math.floor(Math.random() * 10)).join("");
+
   function openModal() {
     setStep(0); setSocioSearch(""); setSocioSel(null); setPlanSel(null);
-    setSuscActiva(null); setMonto(""); setMoneda("BOB"); setMetodo("EFECTIVO");
-    setReferencia(""); setNitCi(""); setRazonSocial(""); setErrors({});
+    setSuscActiva(null); setConfirmarRenovacion(null); setFechaInicioPago(todayStr());
+    setMonto(""); setMoneda("BOB"); setMetodo("EFECTIVO");
+    setReferencia(""); setNitCi(""); setRazonSocial("");
+    setCufd(rand12()); setCodAutorizacion(rand12());
+    setErrors({});
     setShowModal(true);
   }
 
@@ -376,23 +383,42 @@ export default function PagosPage() {
 
   async function selectSocio(s: SocioSearch) {
     setSocioSel(s); setSocios([]); setSocioSearch([s.nombre, s.apellido].filter(Boolean).join(" "));
-    setNitCi(s.ci ?? ""); setRazonSocial([s.nombre, s.apellido].filter(Boolean).join(" ").toUpperCase());
+    setNitCi(s.ci ?? "");
+    // Razón social: solo apellido paterno
+    setRazonSocial((s.apellido ?? s.nombre ?? "").toUpperCase());
     const { data: susc } = await supabase.from("suscripciones")
       .select("id,plan_id,fecha_inicio,fecha_fin,estado,planes(nombre,monto,codigo_moneda)")
-      .eq("socio_id", s.id).eq("estado", "activa").maybeSingle();
+      .eq("socio_id", s.id)
+      .gte("fecha_fin", todayStr())
+      .order("fecha_fin", { ascending: false })
+      .limit(1)
+      .maybeSingle();
     setSuscActiva(susc as SuscripcionActiva | null);
+    setConfirmarRenovacion(null);
     const { data: pl } = await supabase.from("planes").select("*").eq("activo", true).order("monto");
     setPlanes((pl ?? []) as PlanRow[]);
+    // Si no tiene suscripción activa, fecha inicio = hoy por defecto
+    if (!susc) setFechaInicioPago(todayStr());
+    else setFechaInicioPago("");
   }
 
   function validateStep(): boolean {
     const e: Record<string, string> = {};
-    if (step === 0 && !socioSel) e.socio = "Selecciona un socio";
-    if (step === 1 && !planSel) e.plan = "Selecciona un plan";
+    if (step === 0) {
+      if (!socioSel) e.socio = "Selecciona un socio";
+      if (socioSel && suscActiva && confirmarRenovacion === null) e.renovar = "Confirma si deseas renovar con anticipación";
+    }
+    if (step === 1) {
+      if (!fechaInicioPago) e.fechaInicio = "Selecciona la fecha de inicio";
+      if (suscActiva && fechaInicioPago && fechaInicioPago <= suscActiva.fecha_fin) {
+        e.fechaInicio = `Debe ser posterior al ${formatDate(suscActiva.fecha_fin)}`;
+      }
+    }
     if (step === 2) {
-      if (!monto || isNaN(Number(monto)) || Number(monto) <= 0) e.monto = "Monto inválido";
+      if (!planSel) e.plan = "Selecciona un plan";
     }
     if (step === 3) {
+      if (!monto || isNaN(Number(monto)) || Number(monto) <= 0) e.monto = "Monto inválido";
       if (!nitCi.trim()) e.nitCi = "NIT/CI requerido";
       if (!razonSocial.trim()) e.razonSocial = "Razón social requerida";
     }
@@ -405,11 +431,19 @@ export default function PagosPage() {
     if (!socioSel || !planSel) return;
     setSaving(true);
     try {
-      const fechaInicio = todayStr();
+      const fechaInicio = fechaInicioPago;
       const fechaFin = addDays(fechaInicio, planSel.duracion_dias);
+
+      // Marcar suscripción anterior como vencida si existe
+      if (suscActiva) {
+        await supabase.from("suscripciones").update({ estado: "VENCIDA" }).eq("id", suscActiva.id);
+      }
+
       const { data: susc, error: suscErr } = await supabase.from("suscripciones").insert({
         socio_id: socioSel.id, plan_id: planSel.id,
-        fecha_inicio: fechaInicio, fecha_fin: fechaFin, estado: "activa",
+        sucursal_inscripcion_id: SUCURSAL_ID,
+        empleado_registro_id: EMPLEADO_ID,
+        fecha_inicio: fechaInicio, fecha_fin: fechaFin, estado: "ACTIVA",
       }).select().single();
       if (suscErr) throw suscErr;
 
@@ -424,19 +458,29 @@ export default function PagosPage() {
         suscripciones(plan_id,fecha_inicio,fecha_fin,planes(nombre,descripcion))`).single();
       if (pagoErr) throw pagoErr;
 
+      // Número de factura: función atómica en DB para evitar duplicados
+      const { data: nroData } = await supabase.rpc("siguiente_numero_factura");
+      const nextNumero = (nroData as number | null) ?? 1;
+
       await supabase.from("facturas").insert({
-        pago_id: pago.id, nit_ci_comprador: nitCi.trim(),
+        pago_id: pago.id,
+        numero: nextNumero,
+        nit_ci_comprador: nitCi.trim(),
         razon_social_comprador: razonSocial.trim().toUpperCase(),
         fecha_emision: new Date().toISOString(),
+        cufd: cufd,
+        codigo_autorizacion: codAutorizacion,
       });
 
       setShowModal(false);
-      showToast("Pago registrado correctamente");
+      showToast(suscActiva ? "Renovación anticipada registrada" : "Pago registrado correctamente");
+      // Actualizar campo suscrito del socio
+      await supabase.from("socios").update({ suscrito: true }).eq("id", socioSel.id);
       void refresh();
       if (sucursal) void generarFacturaPDF(pago as unknown as PagoRow, sucursal);
-    } catch (err) {
-      console.error(err);
-      setErrors({ general: "Error al guardar. Intenta de nuevo." });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error al guardar. Intenta de nuevo.";
+      setErrors({ general: msg });
     } finally {
       setSaving(false);
     }
@@ -444,10 +488,9 @@ export default function PagosPage() {
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#020617] text-slate-100 p-4 md:p-6 space-y-5">
+    <div className="space-y-5">
       <Toast open={toast.open} message={toast.message} onClose={() => setToast((t) => ({ ...t, open: false }))} />
 
-      {/* Historial panel */}
       {historialSocio && (
         <HistorialPanel
           socioId={historialSocio.id}
@@ -458,15 +501,18 @@ export default function PagosPage() {
       )}
 
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-slate-100">Pagos</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Registro y seguimiento de cobros</p>
+      <div className="rounded-2xl border border-[#1e293b] bg-gradient-to-b from-white/5 to-transparent p-6">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <div className="section-kicker">Finanzas</div>
+            <h1 className="section-title">Pagos</h1>
+            <p className="section-description">Registro y seguimiento de cobros</p>
+          </div>
+          <button onClick={openModal}
+            className="flex items-center gap-2 rounded-2xl bg-brand-green px-5 py-2.5 text-sm font-bold text-[#020617] hover:bg-brand-green/90 transition-all shadow-lg shadow-brand-green/20">
+            <CashIcon /> Registrar pago
+          </button>
         </div>
-        <button onClick={openModal}
-          className="flex items-center gap-2 rounded-2xl bg-brand-green px-4 py-2.5 text-sm font-bold text-[#020617] hover:bg-brand-green/90 transition-all shadow-lg shadow-brand-green/20">
-          <CashIcon /> Registrar pago
-        </button>
       </div>
 
       {/* Stats */}
@@ -493,13 +539,12 @@ export default function PagosPage() {
               placeholder="Buscar socio, CI, plan, referencia…"
               className="w-full rounded-2xl border border-[#1e293b] bg-white/5 pl-9 pr-4 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-brand-green/40 focus:border-brand-green/50" />
           </div>
-          <button onClick={() => void exportCSV(filtered)}
+          <button onClick={() => exportCSV(filtered)}
             className="flex items-center gap-1.5 rounded-2xl border border-[#1e293b] bg-white/5 px-3 py-2.5 text-xs font-semibold text-slate-300 hover:text-slate-100 hover:border-brand-green/40 transition-all">
             <DownloadIcon /> CSV
           </button>
         </div>
 
-        {/* Method pills */}
         <div className="flex flex-wrap gap-2">
           {(["todos", ...METODOS.map((m) => m.value)] as FilterMetodo[]).map((v) => (
             <button key={v} onClick={() => { setFilterMetodo(v); setPage(0); }}
@@ -510,7 +555,6 @@ export default function PagosPage() {
           ))}
         </div>
 
-        {/* Moneda + Fecha pills */}
         <div className="flex flex-wrap gap-2">
           {(["todos", "BOB", "USD"] as FilterMoneda[]).map((v) => (
             <button key={v} onClick={() => { setFilterMoneda(v); setPage(0); }}
@@ -584,7 +628,6 @@ export default function PagosPage() {
           </table>
         </div>
 
-        {/* Pagination */}
         {totalPages > 1 && (
           <div className="flex items-center justify-between border-t border-[#1e293b] px-4 py-3">
             <span className="text-xs text-slate-500">{filtered.length} resultados · página {page + 1} de {totalPages}</span>
@@ -602,112 +645,263 @@ export default function PagosPage() {
         )}
       </div>
 
-      {/* Modal */}
+      {/* Modal nuevo pago */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <button className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowModal(false)} />
-          <div className="relative w-full max-w-md rounded-3xl border border-[#1e293b] bg-[#020617] shadow-2xl overflow-hidden">
+          <div className="relative w-full max-w-lg rounded-3xl border border-[#1e293b] bg-[#020617] shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+
             {/* Modal header */}
-            <div className="flex items-center justify-between border-b border-[#1e293b] px-5 py-4">
+            <div className="flex items-center justify-between border-b border-[#1e293b] px-6 py-4 shrink-0">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Nuevo pago</p>
+                <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Registrar pago</p>
                 <p className="text-sm font-bold text-slate-100">
-                  {["Buscar socio", "Seleccionar plan", "Datos del pago", "Datos de factura"][step]}
+                  {["Buscar socio", "Fecha de inicio", "Seleccionar plan", "Pago y facturación"][step]}
                 </p>
               </div>
               <button onClick={() => setShowModal(false)} className="flex h-8 w-8 items-center justify-center rounded-full border border-[#1e293b] bg-white/5 text-slate-400 hover:text-slate-100"><XIcon /></button>
             </div>
 
-            {/* Steps indicator */}
-            <div className="flex gap-1 px-5 pt-4">
+            {/* Progress */}
+            <div className="flex gap-1.5 px-6 pt-4 shrink-0">
               {[0, 1, 2, 3].map((i) => (
-                <div key={i} className={["h-1 flex-1 rounded-full transition-all", i <= step ? "bg-brand-green" : "bg-[#1e293b]"].join(" ")} />
+                <div key={i} className={["h-1 flex-1 rounded-full transition-all duration-300", i <= step ? "bg-brand-green" : "bg-[#1e293b]"].join(" ")} />
               ))}
             </div>
 
-            <div className="px-5 py-4 space-y-4">
-              {errors.general && <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">{errors.general}</p>}
-
-              {/* Step 0: Socio */}
-              {step === 0 && (
-                <Field label="Socio" error={errors.socio}>
-                  <input value={socioSearch} onChange={(e) => void searchSocios(e.target.value)}
-                    placeholder="Nombre, apellido o CI…"
-                    className={inputCls(!!errors.socio, !!socioSel)} />
-                  {socios.length > 0 && (
-                    <div className="absolute z-10 mt-1 w-full rounded-2xl border border-[#1e293b] bg-[#0b1220] shadow-xl overflow-hidden">
-                      {socios.map((s) => (
-                        <button key={s.id} onClick={() => void selectSocio(s)}
-                          className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-white/5 transition-colors">
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-brand-green/10 text-brand-green text-xs font-bold">
-                            {(s.nombre?.[0] ?? "?").toUpperCase()}
-                          </span>
-                          <div>
-                            <div className="text-sm font-semibold text-slate-100">{[s.nombre, s.apellido].filter(Boolean).join(" ")}</div>
-                            <div className="text-xs text-slate-500">CI: {s.ci ?? "—"} · {s.es_activo ? "Activo" : "Inactivo"}</div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {socioSel && suscActiva && (
-                    <div className="mt-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
-                      Suscripción activa: {suscActiva.planes?.nombre} · vence {formatDate(suscActiva.fecha_fin)}
-                    </div>
-                  )}
-                </Field>
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+              {errors.general && (
+                <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400 animate-[shake_0.3s_ease]">
+                  {errors.general}
+                </p>
               )}
 
-              {/* Step 1: Plan */}
+              {/* ── Step 0: Buscar socio ── */}
+              {step === 0 && (
+                <div className="space-y-3">
+                  <Field label="Buscar socio" error={errors.socio}>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"><SearchIcon /></span>
+                      <input
+                        value={socioSearch}
+                        onChange={(e) => void searchSocios(e.target.value)}
+                        placeholder="Nombre, apellido o CI…"
+                        className={["w-full rounded-2xl border bg-[#0b1220] pl-9 pr-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition-colors",
+                          errors.socio ? "border-red-500/60 focus:ring-2 focus:ring-red-500/40"
+                            : socioSel ? "border-brand-green/50 focus:ring-2 focus:ring-brand-green/40"
+                            : "border-[#1e293b] focus:ring-2 focus:ring-brand-green/50"].join(" ")}
+                      />
+                    </div>
+                    {/* Dropdown resultados */}
+                    {socios.length > 0 && (
+                      <div className="mt-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] shadow-xl overflow-hidden">
+                        {socios.map((s) => (
+                          <button key={s.id} onClick={() => void selectSocio(s)}
+                            className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-white/5 transition-colors border-b border-[#1e293b]/50 last:border-0">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-green/10 text-brand-green text-sm font-bold">
+                              {(s.nombre?.[0] ?? "?").toUpperCase()}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-semibold text-slate-100">{[s.nombre, s.apellido].filter(Boolean).join(" ")}</div>
+                              <div className="text-xs text-slate-500">CI: {s.ci ?? "—"}</div>
+                            </div>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${s.es_activo ? "border-brand-green/30 text-brand-green bg-brand-green/10" : "border-slate-600 text-slate-500 bg-white/5"}`}>
+                              {s.es_activo ? "Activo" : "Inactivo"}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </Field>
+
+                  {/* Ficha del socio seleccionado */}
+                  {socioSel && (
+                    <div className="rounded-2xl border border-[#1e293b] bg-white/5 overflow-hidden">
+                      <div className="flex items-center gap-4 px-4 py-4 border-b border-[#1e293b]">
+                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-brand-green/15 text-brand-green text-lg font-bold border border-brand-green/25">
+                          {(socioSel.nombre?.[0] ?? "?").toUpperCase()}
+                        </span>
+                        <div>
+                          <p className="text-base font-bold text-slate-100">{[socioSel.nombre, socioSel.apellido].filter(Boolean).join(" ")}</p>
+                          <p className="text-xs text-slate-500">CI: {socioSel.ci ?? "—"} {socioSel.whatsapp ? `· 📱 ${socioSel.whatsapp}` : ""}</p>
+                        </div>
+                        <button onClick={() => { setSocioSel(null); setSocioSearch(""); setSuscActiva(null); setConfirmarRenovacion(null); }}
+                          className="ml-auto flex h-7 w-7 items-center justify-center rounded-full border border-[#1e293b] bg-white/5 text-slate-500 hover:text-slate-200 transition-colors">
+                          <XIcon />
+                        </button>
+                      </div>
+
+                      {/* Estado suscripción */}
+                      {suscActiva ? (
+                        <div className="px-4 py-4 space-y-3">
+                          {/* Tarjeta plan activo */}
+                          <div className="rounded-xl border border-amber-400/25 bg-amber-400/5 px-4 py-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <p className="text-[10px] font-bold uppercase tracking-widest text-amber-400">Plan activo</p>
+                                <p className="text-sm font-bold text-slate-100 mt-0.5">{suscActiva.planes?.nombre}</p>
+                                <p className="text-xs text-slate-400 mt-0.5">
+                                  Vence el <span className="font-semibold text-amber-300">{formatDate(suscActiva.fecha_fin)}</span>
+                                </p>
+                              </div>
+                              <span className="text-sm font-bold text-amber-300 shrink-0">
+                                {suscActiva.planes ? fmtMoney(suscActiva.planes.monto, suscActiva.planes.codigo_moneda) : ""}
+                              </span>
+                            </div>
+                          </div>
+                          {/* Pregunta renovación anticipada */}
+                          <div>
+                            <p className="text-xs text-slate-400 mb-2">
+                              Tienes una suscripción activa, ¿quieres renovar con anticipación?
+                            </p>
+                            {errors.renovar && (
+                              <p className="mb-2 text-xs text-red-400 animate-[shake_0.3s_ease]">{errors.renovar}</p>
+                            )}
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => setConfirmarRenovacion(true)}
+                                className={["flex-1 rounded-2xl border py-2.5 text-sm font-bold transition-all",
+                                  confirmarRenovacion === true
+                                    ? "border-brand-green/50 bg-brand-green/15 text-brand-green"
+                                    : "border-[#1e293b] bg-white/5 text-slate-300 hover:border-brand-green/30 hover:text-brand-green"].join(" ")}>
+                                ✓ Sí, renovar
+                              </button>
+                              <button
+                                onClick={() => { setConfirmarRenovacion(false); setShowModal(false); }}
+                                className="flex-1 rounded-2xl border border-[#1e293b] bg-white/5 py-2.5 text-sm font-semibold text-slate-400 hover:text-slate-200 transition-all">
+                                No, cancelar
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="px-4 py-3 bg-brand-green/5">
+                          <p className="text-xs font-bold text-brand-green uppercase tracking-wide">✓ Sin suscripción activa</p>
+                          <p className="text-xs text-slate-500 mt-0.5">Podrás elegir la fecha de inicio en el siguiente paso</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Step 1: Fecha de inicio ── */}
               {step === 1 && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-3">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-brand-green/10 text-brand-green text-xs font-bold">
+                      {(socioSel?.nombre?.[0] ?? "?").toUpperCase()}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-100 truncate">{[socioSel?.nombre, socioSel?.apellido].filter(Boolean).join(" ")}</p>
+                      {suscActiva
+                        ? <p className="text-xs text-amber-400">Renovación anticipada · vence {formatDate(suscActiva.fecha_fin)}</p>
+                        : <p className="text-xs text-brand-green">Nueva suscripción</p>}
+                    </div>
+                  </div>
+                  <Field
+                    label="Fecha de inicio"
+                    hint={suscActiva ? `Debe ser posterior al ${formatDate(suscActiva.fecha_fin)}` : "Desde cuándo aplica la suscripción"}
+                    error={errors.fechaInicio}
+                    success={!!fechaInicioPago && !errors.fechaInicio}>
+                    <input
+                      type="date"
+                      value={fechaInicioPago}
+                      min={suscActiva ? addDays(suscActiva.fecha_fin, 1) : todayStr()}
+                      onChange={(e) => setFechaInicioPago(e.target.value)}
+                      className={inputCls(!!errors.fechaInicio, !!fechaInicioPago && !errors.fechaInicio)}
+                    />
+                  </Field>
+                  {fechaInicioPago && !errors.fechaInicio && (
+                    <div className="rounded-xl border border-brand-green/20 bg-brand-green/5 px-4 py-2.5 text-xs text-slate-400">
+                      Inicio: <span className="font-bold text-brand-green">{formatDate(fechaInicioPago)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Step 2: Plan ── */}
+              {step === 2 && (
                 <div className="space-y-2">
+                  <div className="flex items-center gap-3 rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-3 mb-1">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-brand-green/10 text-brand-green text-xs font-bold">
+                      {(socioSel?.nombre?.[0] ?? "?").toUpperCase()}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-100 truncate">{[socioSel?.nombre, socioSel?.apellido].filter(Boolean).join(" ")}</p>
+                      <p className="text-xs text-slate-400">Inicio: <span className="text-brand-green font-semibold">{formatDate(fechaInicioPago)}</span></p>
+                    </div>
+                  </div>
                   <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Selecciona un plan</p>
-                  {errors.plan && <p className="text-xs text-red-400">{errors.plan}</p>}
+                  {errors.plan && <p className="text-xs text-red-400 animate-[shake_0.3s_ease]">{errors.plan}</p>}
                   {planes.map((p) => (
                     <button key={p.id} onClick={() => { setPlanSel(p); setMonto(String(p.monto)); setMoneda(p.codigo_moneda); }}
-                      className={["w-full flex items-center justify-between rounded-2xl border px-4 py-3 text-left transition-all",
-                        planSel?.id === p.id ? "border-brand-green/50 bg-brand-green/10" : "border-[#1e293b] bg-white/5 hover:border-brand-green/30"].join(" ")}>
+                      className={["w-full flex items-center justify-between rounded-2xl border px-4 py-3.5 text-left transition-all",
+                        planSel?.id === p.id ? "border-brand-green/50 bg-brand-green/10 shadow-sm shadow-brand-green/10" : "border-[#1e293b] bg-white/5 hover:border-brand-green/30"].join(" ")}>
                       <div>
                         <div className="text-sm font-semibold text-slate-100">{p.nombre}</div>
-                        <div className="text-xs text-slate-500">{p.duracion_dias} días</div>
+                        <div className="text-xs text-slate-500 mt-0.5">{p.duracion_dias} días · vence {formatDate(addDays(fechaInicioPago, p.duracion_dias))}</div>
                       </div>
-                      <div className={`text-sm font-bold ${p.codigo_moneda === "BOB" ? "text-brand-green" : "text-sky-400"}`}>
-                        {fmtMoney(p.monto, p.codigo_moneda)}
+                      <div className="flex items-center gap-2">
+                        <span className={`text-base font-bold ${p.codigo_moneda === "BOB" ? "text-brand-green" : "text-sky-400"}`}>
+                          {fmtMoney(p.monto, p.codigo_moneda)}
+                        </span>
+                        {planSel?.id === p.id && <span className="text-brand-green"><CheckIcon /></span>}
                       </div>
                     </button>
                   ))}
                 </div>
               )}
 
-              {/* Step 2: Pago */}
-              {step === 2 && (
-                <>
-                  <Field label="Monto" error={errors.monto} success={!!monto && !errors.monto}>
-                    <input type="number" value={monto} onChange={(e) => setMonto(e.target.value)}
-                      className={inputCls(!!errors.monto, !!monto && !errors.monto)} />
-                  </Field>
-                  <Field label="Moneda">
-                    <div className="flex gap-2">
-                      {(["BOB", "USD"] as Moneda[]).map((c) => (
-                        <button key={c} onClick={() => setMoneda(c)}
-                          className={["flex-1 rounded-2xl border py-2.5 text-sm font-semibold transition-all",
-                            moneda === c ? "border-brand-green/50 bg-brand-green/15 text-brand-green" : "border-[#1e293b] bg-white/5 text-slate-400"].join(" ")}>
-                          {c}
-                        </button>
-                      ))}
+              {/* ── Step 3: Pago + Facturación ── */}
+              {step === 3 && (
+                <div className="space-y-4">
+                  {/* Resumen */}
+                  <div className="rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-3 space-y-1">
+                    <p className="text-[10px] uppercase tracking-widest text-slate-500">Resumen</p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-slate-300">{[socioSel?.nombre, socioSel?.apellido].filter(Boolean).join(" ")}</span>
+                      <span className="text-sm font-bold text-slate-100">{planSel?.nombre}</span>
                     </div>
-                  </Field>
+                    <p className="text-xs text-slate-500">
+                      {formatDate(fechaInicioPago)} → {planSel ? formatDate(addDays(fechaInicioPago, planSel.duracion_dias)) : "—"}
+                      {suscActiva && <span className="ml-2 text-amber-400">· Renovación anticipada</span>}
+                    </p>
+                  </div>
+
+                  {/* Monto y moneda */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Monto" error={errors.monto} success={!!monto && !errors.monto}>
+                      <input type="number" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)}
+                        className={inputCls(!!errors.monto, !!monto && !errors.monto)} />
+                    </Field>
+                    <Field label="Moneda">
+                      <div className="flex gap-2 mt-1.5">
+                        {(["BOB", "USD"] as Moneda[]).map((c) => (
+                          <button key={c} onClick={() => setMoneda(c)}
+                            className={["flex-1 rounded-2xl border py-3 text-sm font-bold transition-all",
+                              moneda === c ? "border-brand-green/50 bg-brand-green/15 text-brand-green" : "border-[#1e293b] bg-white/5 text-slate-400 hover:text-slate-200"].join(" ")}>
+                            {c}
+                          </button>
+                        ))}
+                      </div>
+                    </Field>
+                  </div>
+
+                  {/* Método */}
                   <Field label="Método de pago">
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-2 gap-2 mt-1.5">
                       {METODOS.map((m) => (
                         <button key={m.value} onClick={() => setMetodo(m.value)}
-                          className={["rounded-2xl border px-3 py-2.5 text-xs font-semibold transition-all text-left",
-                            metodo === m.value ? "border-brand-green/50 bg-brand-green/15 text-brand-green" : "border-[#1e293b] bg-white/5 text-slate-400"].join(" ")}>
-                          {m.icon} {m.label}
+                          className={["rounded-2xl border px-3 py-3 text-xs font-semibold transition-all text-left flex items-center gap-2",
+                            metodo === m.value ? "border-brand-green/50 bg-brand-green/15 text-brand-green" : "border-[#1e293b] bg-white/5 text-slate-400 hover:text-slate-200"].join(" ")}>
+                          <span className="text-base">{m.icon}</span> {m.label}
                         </button>
                       ))}
                     </div>
                   </Field>
+
                   {metodo !== "EFECTIVO" && (
                     <Field label="Referencia / Comprobante">
                       <input value={referencia} onChange={(e) => setReferencia(e.target.value)}
@@ -715,38 +909,56 @@ export default function PagosPage() {
                         className={inputCls()} />
                     </Field>
                   )}
-                </>
-              )}
 
-              {/* Step 3: Factura */}
-              {step === 3 && (
-                <>
-                  <Field label="NIT / CI del comprador" error={errors.nitCi} success={!!nitCi && !errors.nitCi}>
-                    <input value={nitCi} onChange={(e) => setNitCi(e.target.value)}
-                      className={inputCls(!!errors.nitCi, !!nitCi && !errors.nitCi)} />
-                  </Field>
-                  <Field label="Razón social" error={errors.razonSocial} success={!!razonSocial && !errors.razonSocial}>
-                    <input value={razonSocial} onChange={(e) => setRazonSocial(e.target.value.toUpperCase())}
-                      className={inputCls(!!errors.razonSocial, !!razonSocial && !errors.razonSocial)} />
-                  </Field>
-                </>
+                  {/* Facturación Bolivia */}
+                  <div className="rounded-2xl border border-[#1e293b] bg-white/5 p-4 space-y-3">
+                    <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Datos de facturación</p>
+                    <Field label="NIT / CI del comprador" error={errors.nitCi} success={!!nitCi && !errors.nitCi}>
+                      <input value={nitCi} onChange={(e) => setNitCi(e.target.value)}
+                        placeholder="Ej: 12345678"
+                        className={inputCls(!!errors.nitCi, !!nitCi && !errors.nitCi)} />
+                    </Field>
+                    <Field label="Razón social" error={errors.razonSocial} success={!!razonSocial && !errors.razonSocial}>
+                      <input value={razonSocial} onChange={(e) => setRazonSocial(e.target.value.toUpperCase())}
+                        placeholder="APELLIDO PATERNO"
+                        className={inputCls(!!errors.razonSocial, !!razonSocial && !errors.razonSocial)} />
+                    </Field>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="CUFD" hint="Generado automáticamente">
+                        <input value={cufd} readOnly
+                          className="w-full rounded-2xl border border-[#1e293b] bg-[#0b1220]/60 px-4 py-3 text-sm text-slate-400 outline-none cursor-default font-mono tracking-wider" />
+                      </Field>
+                      <Field label="Cód. Autorización" hint="Generado automáticamente">
+                        <input value={codAutorizacion} readOnly
+                          className="w-full rounded-2xl border border-[#1e293b] bg-[#0b1220]/60 px-4 py-3 text-sm text-slate-400 outline-none cursor-default font-mono tracking-wider" />
+                      </Field>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
 
-            {/* Modal footer */}
-            <div className="flex items-center justify-between border-t border-[#1e293b] px-5 py-4">
+            {/* Footer */}
+            <div className="flex items-center justify-between border-t border-[#1e293b] px-6 py-4 shrink-0">
               <button onClick={() => step > 0 ? setStep((s) => s - 1) : setShowModal(false)}
                 className="rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:text-slate-100 transition-all">
-                {step === 0 ? "Cancelar" : "Atrás"}
+                {step === 0 ? "Cancelar" : "← Atrás"}
               </button>
               {step < 3 ? (
-                <button onClick={() => { if (validateStep()) setStep((s) => s + 1); }}
-                  className="rounded-2xl bg-brand-green px-5 py-2.5 text-sm font-bold text-[#020617] hover:bg-brand-green/90 transition-all">
-                  Siguiente
+                <button
+                  onClick={() => {
+                    if (!validateStep()) return;
+                    // Si tiene susc activa, solo avanzar si confirmó renovar
+                    if (step === 0 && suscActiva && confirmarRenovacion !== true) return;
+                    setStep((s) => s + 1);
+                  }}
+                  className="rounded-2xl bg-brand-green px-6 py-2.5 text-sm font-bold text-[#020617] hover:bg-brand-green/90 transition-all disabled:opacity-50"
+                  disabled={step === 0 && !socioSel}>
+                  Siguiente →
                 </button>
               ) : (
                 <button onClick={() => void handleSave()} disabled={saving}
-                  className="flex items-center gap-2 rounded-2xl bg-brand-green px-5 py-2.5 text-sm font-bold text-[#020617] hover:bg-brand-green/90 disabled:opacity-50 transition-all">
+                  className="flex items-center gap-2 rounded-2xl bg-brand-green px-6 py-2.5 text-sm font-bold text-[#020617] hover:bg-brand-green/90 disabled:opacity-50 transition-all">
                   {saving ? "Guardando…" : <><CreditIcon /> Confirmar pago</>}
                 </button>
               )}

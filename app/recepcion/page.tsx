@@ -4,6 +4,8 @@ import { supabase } from "@/lib/supabase";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const SUCURSAL_ID = 1;
+const TZ = "America/La_Paz";
+function todayStr() { return new Date().toLocaleDateString("en-CA", { timeZone: TZ }); }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -20,6 +22,7 @@ type SocioResult = {
 
 type SuscripcionActiva = {
   id: number;
+  fecha_inicio: string;
   fecha_fin: string;
   planes: { nombre: string | null } | null;
 };
@@ -256,6 +259,7 @@ function EntradaPanel({ onSuccess }: { onSuccess: (msg: string) => void }) {
   const [searching, setSearching] = useState(false);
   const [socio, setSocio] = useState<SocioResult | null>(null);
   const [suscripcion, setSuscripcion] = useState<SuscripcionActiva | null>(null);
+  const [suscripcionFutura, setSuscripcionFutura] = useState<SuscripcionActiva | null>(null);
   const [asistenciaActiva, setAsistenciaActiva] = useState<AsistenciaActiva | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [needsLocker, setNeedsLocker] = useState(false);
@@ -269,7 +273,7 @@ function EntradaPanel({ onSuccess }: { onSuccess: (msg: string) => void }) {
     const q = ciVal.trim();
     if (!q) { setSocio(null); setNotFound(false); return; }
     setSearching(true);
-    setSocio(null); setNotFound(false); setSuscripcion(null); setAsistenciaActiva(null); setNeedsLocker(false); setCasilleroAsignado(null);
+    setSocio(null); setNotFound(false); setSuscripcion(null); setSuscripcionFutura(null); setAsistenciaActiva(null); setNeedsLocker(false); setCasilleroAsignado(null);
 
     const { data } = await supabase
       .from("socios")
@@ -282,12 +286,22 @@ function EntradaPanel({ onSuccess }: { onSuccess: (msg: string) => void }) {
     setSocio(s);
 
     // Cargar suscripción activa y asistencia activa en paralelo
-    const [{ data: subData }, { data: asisData }] = await Promise.all([
+    const [{ data: subData }, { data: subFuturaData }, { data: asisData }] = await Promise.all([
       supabase.from("suscripciones")
-        .select("id,fecha_fin,planes(nombre)")
+        .select("id,fecha_inicio,fecha_fin,planes(nombre)")
         .eq("socio_id", s.id)
         .eq("estado", "ACTIVA")
+        .lte("fecha_inicio", todayStr())
+        .gte("fecha_fin", todayStr())
         .order("fecha_fin", { ascending: false })
+        .limit(1),
+      // Suscripción futura: empieza después de hoy
+      supabase.from("suscripciones")
+        .select("id,fecha_inicio,fecha_fin,planes(nombre)")
+        .eq("socio_id", s.id)
+        .eq("estado", "ACTIVA")
+        .gt("fecha_inicio", todayStr())
+        .order("fecha_inicio", { ascending: true })
         .limit(1),
       supabase.from("asistencias")
         .select("id,fecha_entrada,casillero_id,casilleros(identificador_visual)")
@@ -297,6 +311,7 @@ function EntradaPanel({ onSuccess }: { onSuccess: (msg: string) => void }) {
     ]);
 
     setSuscripcion(subData && subData.length > 0 ? (subData[0] as unknown as SuscripcionActiva) : null);
+    setSuscripcionFutura(subFuturaData && subFuturaData.length > 0 ? (subFuturaData[0] as unknown as SuscripcionActiva) : null);
     setAsistenciaActiva(asisData && asisData.length > 0 ? (asisData[0] as unknown as AsistenciaActiva) : null);
     setSearching(false);
   }
@@ -344,12 +359,12 @@ function EntradaPanel({ onSuccess }: { onSuccess: (msg: string) => void }) {
     if (error) { onSuccess("Error al registrar entrada"); return; }
 
     onSuccess(`Entrada registrada${casilleroId ? ` · Casillero ${casilleroAsignado?.identificador_visual}` : ""}`);
-    setCi(""); setSocio(null); setSuscripcion(null); setAsistenciaActiva(null);
+    setCi(""); setSocio(null); setSuscripcion(null); setSuscripcionFutura(null); setAsistenciaActiva(null);
     setNeedsLocker(false); setCasilleroAsignado(null); setNotFound(false);
     inputRef.current?.focus();
   }
 
-  const canEnter = socio && socio.es_activo && socio.suscrito && !asistenciaActiva;
+  const canEnter = socio && socio.es_activo && !!suscripcion && !asistenciaActiva;
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -383,7 +398,7 @@ function EntradaPanel({ onSuccess }: { onSuccess: (msg: string) => void }) {
           </div>
         ) : null}
 
-        {socio ? <SocioCard socio={socio} suscripcion={suscripcion} asistenciaActiva={asistenciaActiva} /> : null}
+        {socio ? <SocioCard socio={socio} suscripcion={suscripcion} suscripcionFutura={suscripcionFutura} asistenciaActiva={asistenciaActiva} /> : null}
       </div>
 
       {/* Acciones */}
@@ -433,7 +448,7 @@ function EntradaPanel({ onSuccess }: { onSuccess: (msg: string) => void }) {
               </button>
             </>
           ) : (
-            <BlockedInfo socio={socio} asistenciaActiva={asistenciaActiva} />
+          <BlockedInfo socio={socio} suscripcionFutura={suscripcionFutura} asistenciaActiva={asistenciaActiva} />
           )}
         </div>
       ) : null}
@@ -531,7 +546,7 @@ function SalidaPanel({ onSuccess }: { onSuccess: (msg: string) => void }) {
           </div>
         ) : null}
 
-        {socio ? <SocioCard socio={socio} suscripcion={null} asistenciaActiva={asistencia} /> : null}
+        {socio ? <SocioCard socio={socio} suscripcion={null} suscripcionFutura={null} asistenciaActiva={asistencia} /> : null}
       </div>
 
       {socio && !notFound ? (
@@ -576,18 +591,19 @@ function SalidaPanel({ onSuccess }: { onSuccess: (msg: string) => void }) {
 
 // ── Socio Card ────────────────────────────────────────────────────────────────
 
-function SocioCard({ socio, suscripcion, asistenciaActiva }: {
+function SocioCard({ socio, suscripcion, suscripcionFutura, asistenciaActiva }: {
   socio: SocioResult;
   suscripcion: SuscripcionActiva | null;
+  suscripcionFutura: SuscripcionActiva | null;
   asistenciaActiva: AsistenciaActiva | null;
 }) {
   const bloqueado = socio.es_activo === false;
-  const sinSub = socio.es_activo !== false && !socio.suscrito;
   const dentroAhora = !!asistenciaActiva;
-  const ok = socio.es_activo === true && socio.suscrito === true && !dentroAhora;
+  const sinSub = !bloqueado && !suscripcion;
+  const ok = !bloqueado && !!suscripcion && !dentroAhora;
 
-  const borderColor = bloqueado ? "border-red-500/30" : sinSub ? "border-amber-400/30" : dentroAhora ? "border-amber-400/30" : "border-brand-green/30";
-  const bgColor = bloqueado ? "bg-red-500/5" : sinSub ? "bg-amber-400/5" : dentroAhora ? "bg-amber-400/5" : "bg-brand-green/5";
+  const borderColor = bloqueado ? "border-red-500/30" : dentroAhora ? "border-amber-400/30" : sinSub ? "border-amber-400/30" : "border-brand-green/30";
+  const bgColor = bloqueado ? "bg-red-500/5" : dentroAhora ? "bg-amber-400/5" : sinSub ? "bg-amber-400/5" : "bg-brand-green/5";
 
   return (
     <div className={`rounded-2xl border p-5 space-y-4 ${borderColor} ${bgColor}`}>
@@ -601,6 +617,10 @@ function SocioCard({ socio, suscripcion, asistenciaActiva }: {
           {suscripcion ? (
             <div className="mt-1 text-xs text-slate-500">
               {suscripcion.planes?.nombre} · Vence <span className="text-slate-300">{suscripcion.fecha_fin}</span>
+            </div>
+          ) : suscripcionFutura ? (
+            <div className="mt-1 text-xs text-amber-400">
+              Inicia el <span className="font-semibold">{suscripcionFutura.fecha_inicio}</span> · {suscripcionFutura.planes?.nombre}
             </div>
           ) : null}
         </div>
@@ -640,7 +660,7 @@ function StatusBadge({ bloqueado, sinSub, dentroAhora, ok }: { bloqueado: boolea
   );
 }
 
-function BlockedInfo({ socio, asistenciaActiva }: { socio: SocioResult; asistenciaActiva: AsistenciaActiva | null }) {
+function BlockedInfo({ socio, suscripcionFutura, asistenciaActiva }: { socio: SocioResult; suscripcionFutura: SuscripcionActiva | null; asistenciaActiva: AsistenciaActiva | null }) {
   if (asistenciaActiva) return (
     <div className="rounded-2xl border border-amber-400/20 bg-amber-400/5 p-5 text-sm text-amber-300 space-y-1">
       <div className="font-semibold flex items-center gap-2"><AlertIcon /> Socio ya registrado adentro</div>
@@ -651,6 +671,14 @@ function BlockedInfo({ socio, asistenciaActiva }: { socio: SocioResult; asistenc
     <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-5 text-sm text-red-300 space-y-1">
       <div className="font-semibold flex items-center gap-2"><XCircleIcon /> Socio bloqueado</div>
       <div className="text-xs text-slate-400">El socio está deshabilitado manualmente. Contacta administración.</div>
+    </div>
+  );
+  if (suscripcionFutura) return (
+    <div className="rounded-2xl border border-amber-400/20 bg-amber-400/5 p-5 text-sm text-amber-300 space-y-1">
+      <div className="font-semibold flex items-center gap-2"><AlertIcon /> Suscripción aún no vigente</div>
+      <div className="text-xs text-slate-400">
+        Tu suscripción inicia el <span className="font-semibold text-amber-300">{suscripcionFutura.fecha_inicio}</span>. Aún no puedes ingresar.
+      </div>
     </div>
   );
   return (
