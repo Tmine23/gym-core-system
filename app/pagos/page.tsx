@@ -458,26 +458,33 @@ export default function PagosPage() {
         suscripciones(plan_id,fecha_inicio,fecha_fin,planes(nombre,descripcion))`).single();
       if (pagoErr) throw pagoErr;
 
-      // Número de factura: función atómica en DB para evitar duplicados
-      const { data: nroData } = await supabase.rpc("siguiente_numero_factura");
-      const nextNumero = (nroData as number | null) ?? 1;
-
-      await supabase.from("facturas").insert({
+      // numero es GENERATED ALWAYS AS IDENTITY — Postgres lo asigna automáticamente
+      const { error: facturaErr } = await supabase.from("facturas").insert({
         pago_id: pago.id,
-        numero: nextNumero,
         nit_ci_comprador: nitCi.trim(),
         razon_social_comprador: razonSocial.trim().toUpperCase(),
         fecha_emision: new Date().toISOString(),
         cufd: cufd,
         codigo_autorizacion: codAutorizacion,
       });
+      if (facturaErr) throw facturaErr;
 
       setShowModal(false);
       showToast(suscActiva ? "Renovación anticipada registrada" : "Pago registrado correctamente");
       // Actualizar campo suscrito del socio
       await supabase.from("socios").update({ suscrito: true }).eq("id", socioSel.id);
       void refresh();
-      if (sucursal) void generarFacturaPDF(pago as unknown as PagoRow, sucursal);
+      // Re-consultar el pago con la factura ya insertada para el PDF
+      if (sucursal) {
+        const { data: pagoConFactura } = await supabase.from("pagos")
+          .select(`id,monto_pagado,codigo_moneda,metodo_pago,referencia_transaccion,fecha_pago,socio_id,suscripcion_id,
+            facturas(id,numero,nit_ci_comprador,razon_social_comprador,cufd,codigo_autorizacion,fecha_emision),
+            socios(nombre,apellido,ci),
+            suscripciones(plan_id,fecha_inicio,fecha_fin,planes(nombre,descripcion))`)
+          .eq("id", pago.id)
+          .single();
+        if (pagoConFactura) void generarFacturaPDF(pagoConFactura as unknown as PagoRow, sucursal);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error al guardar. Intenta de nuevo.";
       setErrors({ general: msg });
