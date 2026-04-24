@@ -9,8 +9,20 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
 import path from "path";
+import fs from "fs";
 
 const AUTH_DIR = path.join(process.cwd(), ".baileys-auth");
+
+function clearAuth() {
+  try {
+    if (fs.existsSync(AUTH_DIR)) {
+      fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+      console.log("[WhatsApp] Auth limpiada — se generará nuevo QR");
+    }
+  } catch (e) {
+    console.error("[WhatsApp] Error limpiando auth:", e);
+  }
+}
 
 export type WAStatus = "disconnected" | "connecting" | "qr" | "connected";
 
@@ -59,10 +71,14 @@ export async function startWA(): Promise<void> {
       }
       if (connection === "close") {
         const code = (lastDisconnect?.error as Boom)?.output?.statusCode;
-        const shouldReconnect = code !== DisconnectReason.loggedOut;
         g.__wa!.status = "disconnected";
         g.__wa!.sock = null;
-        if (shouldReconnect) {
+        if (code === DisconnectReason.loggedOut) {
+          // Sesión cerrada desde el celular — limpiar auth para generar nuevo QR
+          clearAuth();
+          // Reconectar después de limpiar para generar QR nuevo
+          setTimeout(() => void startWA(), 2000);
+        } else {
           setTimeout(() => void startWA(), 3000);
         }
       }
