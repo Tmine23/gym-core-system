@@ -458,9 +458,14 @@ export default function PagosPage() {
         suscripciones(plan_id,fecha_inicio,fecha_fin,planes(nombre,descripcion))`).single();
       if (pagoErr) throw pagoErr;
 
-      // numero es GENERATED ALWAYS AS IDENTITY — Postgres lo asigna automáticamente
+      // Obtener siguiente número de factura de forma atómica
+      const { data: nroData, error: nroErr } = await supabase.rpc("siguiente_numero_factura");
+      if (nroErr) throw nroErr;
+      const nextNumero = (nroData as number | null) ?? 1;
+
       const { error: facturaErr } = await supabase.from("facturas").insert({
         pago_id: pago.id,
+        numero: nextNumero,
         nit_ci_comprador: nitCi.trim(),
         razon_social_comprador: razonSocial.trim().toUpperCase(),
         fecha_emision: new Date().toISOString(),

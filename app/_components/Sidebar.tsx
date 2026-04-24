@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { SidebarNav } from "./SidebarNav";
-import { AforoWidget } from "./AforoWidget";
 
 export function Sidebar() {
   return (
@@ -13,15 +12,10 @@ export function Sidebar() {
           </Link>
         </div>
 
-        <div className="flex-1 px-3 py-4">
+        <div className="flex-1 px-3 py-4 overflow-y-auto">
           <SidebarNav />
-        </div>
-
-        <div className="px-4 py-4 border-t border-[#1e293b]">
-          <AforoWidget current={42} capacity={120} />
         </div>
       </div>
     </aside>
   );
 }
-

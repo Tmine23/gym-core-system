@@ -153,46 +153,54 @@ export default function CasillerosPage() {
     const suc = sucursales.find((s) => s.id === resetSucursalId);
     const prefix = suc ? inicial(suc.nombre) : "X";
 
-    // 1. Obtener IDs de casilleros no ocupados de esta sucursal
+    // Obtener todos los casilleros de esta sucursal
     const { data: existentes } = await supabase
       .from("casilleros")
-      .select("id,estado")
+      .select("id,estado,identificador_visual")
       .eq("sucursal_id", resetSucursalId);
 
-    const ocupadosIds = (existentes ?? []).filter((c) => c.estado === "OCUPADO").map((c) => c.id);
-    const eliminablesIds = (existentes ?? []).filter((c) => c.estado !== "OCUPADO").map((c) => c.id);
+    const todos = (existentes ?? []) as { id: number; estado: string; identificador_visual: string }[];
+    const noOcupados = todos.filter((c) => c.estado !== "OCUPADO");
+    const ocupadosVisual = new Set(todos.filter((c) => c.estado === "OCUPADO").map((c) => c.identificador_visual));
 
-    // 2. Eliminar los no ocupados
-    if (eliminablesIds.length > 0) {
-      const { error } = await supabase.from("casilleros").delete().in("id", eliminablesIds);
-      if (error) { showToast("Error al resetear"); setResetLoading(false); return; }
-    }
-
-    // 3. Crear nuevos ordenados, saltando números ya usados por ocupados
-    // Los ocupados conservan su identificador_visual, generamos los nuevos evitando colisiones
-    const ocupadosVisual = new Set(
-      (existentes ?? []).filter((c) => c.estado === "OCUPADO").map((c) => {
-        const raw = (c as { identificador_visual?: string }).identificador_visual ?? "";
-        return raw;
-      })
-    );
-
-    const nuevos: { sucursal_id: number; identificador_visual: string; estado: string }[] = [];
+    // Calcular qué identificadores necesitamos (1..n), saltando los ocupados
+    const necesarios: string[] = [];
     let num = 1;
-    while (nuevos.length < n) {
+    while (necesarios.length < n) {
       const id_visual = `${prefix}-${num}`;
-      if (!ocupadosVisual.has(id_visual)) {
-        nuevos.push({ sucursal_id: resetSucursalId, identificador_visual: id_visual, estado: "LIBRE" });
-      }
+      if (!ocupadosVisual.has(id_visual)) necesarios.push(id_visual);
       num++;
     }
 
-    const { error: insertErr } = await supabase.from("casilleros").insert(nuevos);
+    // Casilleros no ocupados que podemos reutilizar (UPDATE a LIBRE con nuevo nombre)
+    const reutilizables = noOcupados.slice(0, necesarios.length);
+    const extras = noOcupados.slice(necesarios.length); // sobran → eliminar si no tienen FK
+
+    // UPDATE los reutilizables
+    for (let i = 0; i < reutilizables.length; i++) {
+      await supabase.from("casilleros").update({
+        identificador_visual: necesarios[i],
+        estado: "LIBRE",
+      }).eq("id", reutilizables[i].id);
+    }
+
+    // INSERT los que faltan
+    const faltantes = necesarios.slice(reutilizables.length);
+    if (faltantes.length > 0) {
+      await supabase.from("casilleros").insert(
+        faltantes.map((id_visual) => ({ sucursal_id: resetSucursalId, identificador_visual: id_visual, estado: "LIBRE" }))
+      );
+    }
+
+    // Intentar eliminar los sobrantes (puede fallar por FK, se ignora)
+    for (const c of extras) {
+      await supabase.from("casilleros").delete().eq("id", c.id);
+    }
+
     setResetLoading(false);
-    if (insertErr) { showToast("Error al crear casilleros"); return; }
     closeReset();
     await refresh();
-    showToast(`Tabla reseteada: ${n} casillero(s) ordenados${ocupadosIds.length > 0 ? ` (${ocupadosIds.length} ocupado(s) conservado(s))` : ""}`);
+    showToast(`Casilleros reseteados: ${n} ordenados desde ${prefix}-1`);
   }
 
   // Modal cambiar estado individual
