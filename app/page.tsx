@@ -6,7 +6,6 @@ import Link from "next/link";
 import React, { useEffect, useState } from "react";
 
 const TZ = "America/La_Paz";
-const DEFAULT_SUCURSAL_ID = 1;
 const DEFAULT_CAPACITY = 50;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -75,9 +74,8 @@ function DeltaBadge({ pct }: { pct: number }) {
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const { user } = useAuth();
-  // Sucursal dinámica
-  const [sucursalId, setSucursalId] = useState<number>(user?.sucursal_id ?? DEFAULT_SUCURSAL_ID);
+  const { user, activeSucursalId } = useAuth();
+  // Sucursal dinámica — usa activeSucursalId del contexto
   const [capacity, setCapacity] = useState<number>(DEFAULT_CAPACITY);
 
   // Operativo
@@ -104,25 +102,31 @@ export default function DashboardPage() {
 
   useEffect(() => {
     async function init() {
-      // Cargar sucursal activa desde la base de datos
-      const { data: sucursalData } = await supabase
-        .from("sucursales")
-        .select("id, capacidad_maxima")
-        .eq("esta_activa", true)
-        .limit(1)
-        .single();
+      // Cargar capacidad de la sucursal activa
+      if (activeSucursalId !== null) {
+        const { data: sucursalData } = await supabase
+          .from("sucursales")
+          .select("capacidad_maxima")
+          .eq("id", activeSucursalId)
+          .single();
+        setCapacity(sucursalData?.capacidad_maxima ?? DEFAULT_CAPACITY);
+      } else {
+        // Admin viendo todas: sumar capacidades
+        const { data: allSucs } = await supabase
+          .from("sucursales")
+          .select("capacidad_maxima")
+          .eq("esta_activa", true);
+        const totalCap = (allSucs ?? []).reduce((sum, s) => sum + (s.capacidad_maxima ?? 0), 0);
+        setCapacity(totalCap || DEFAULT_CAPACITY);
+      }
 
-      const sid = sucursalData?.id ?? DEFAULT_SUCURSAL_ID;
-      const cap = sucursalData?.capacidad_maxima ?? DEFAULT_CAPACITY;
-      setSucursalId(sid);
-      setCapacity(cap);
-
-      void loadAll(sid);
+      void loadAll();
     }
     void init();
-  }, []);
+  }, [activeSucursalId]);
 
-  async function loadAll(sucId: number = sucursalId) {
+  async function loadAll() {
+    const sucId = activeSucursalId;
     const { start, end } = todayRange();
     const now = new Date();
     const mesStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
@@ -136,6 +140,11 @@ export default function DashboardPage() {
     const mesAnteriorStart = `${mesAnteriorDate.getFullYear()}-${String(mesAnteriorDate.getMonth() + 1).padStart(2, "0")}-01`;
     const mesAnteriorEnd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
 
+    // Build queries — when sucId is null (Admin: all), don't filter by sucursal_id
+    const aforoQuery = supabase.from("asistencias").select("id", { count: "exact", head: true }).is("fecha_salida", null);
+    const adentroQuery = supabase.from("asistencias").select("id,socio_id,fecha_entrada,socios(nombre,apellido,foto_url)").is("fecha_salida", null).order("fecha_entrada", { ascending: false });
+    const entradasQuery = supabase.from("asistencias").select("fecha_entrada").gte("fecha_entrada", start).lte("fecha_entrada", end);
+
     const [
       aforoRes, adentroRes, entradasRes,
       riesgoAsisRes, sociosRes,
@@ -146,9 +155,9 @@ export default function DashboardPage() {
       sociosNuevosMesRes, sociosNuevosMesAntRes,
       asistieronSemanaRes,
     ] = await Promise.all([
-      supabase.from("asistencias").select("id", { count: "exact", head: true }).eq("sucursal_id", sucId).is("fecha_salida", null),
-      supabase.from("asistencias").select("id,socio_id,fecha_entrada,socios(nombre,apellido,foto_url)").eq("sucursal_id", sucId).is("fecha_salida", null).order("fecha_entrada", { ascending: false }),
-      supabase.from("asistencias").select("fecha_entrada").eq("sucursal_id", sucId).gte("fecha_entrada", start).lte("fecha_entrada", end),
+      sucId !== null ? aforoQuery.eq("sucursal_id", sucId) : aforoQuery,
+      sucId !== null ? adentroQuery.eq("sucursal_id", sucId) : adentroQuery,
+      sucId !== null ? entradasQuery.eq("sucursal_id", sucId) : entradasQuery,
       supabase.from("asistencias").select("socio_id,fecha_entrada").gte("fecha_entrada", hace60).order("fecha_entrada", { ascending: false }),
       supabase.from("socios").select("id,nombre,apellido,foto_url,es_activo,suscrito"),
       supabase.from("socios").select("nombre,apellido,fecha_nacimiento").eq("es_activo", true).not("fecha_nacimiento", "is", null),
@@ -254,22 +263,27 @@ export default function DashboardPage() {
       .on("postgres_changes", { event: "*", schema: "public", table: "asistencias" }, () => void loadAll())
       .on("postgres_changes", { event: "*", schema: "public", table: "socios" }, () => void loadAll())
       .on("postgres_changes", { event: "*", schema: "public", table: "sucursales" }, async () => {
-        // Recargar configuración de sucursal cuando cambia
-        const { data: sucursalData } = await supabase
-          .from("sucursales")
-          .select("id, capacidad_maxima")
-          .eq("esta_activa", true)
-          .limit(1)
-          .single();
-        const sid = sucursalData?.id ?? DEFAULT_SUCURSAL_ID;
-        const cap = sucursalData?.capacidad_maxima ?? DEFAULT_CAPACITY;
-        setSucursalId(sid);
-        setCapacity(cap);
-        void loadAll(sid);
+        // Recargar capacidad cuando cambia la sucursal
+        if (activeSucursalId !== null) {
+          const { data: sucursalData } = await supabase
+            .from("sucursales")
+            .select("capacidad_maxima")
+            .eq("id", activeSucursalId)
+            .single();
+          setCapacity(sucursalData?.capacidad_maxima ?? DEFAULT_CAPACITY);
+        } else {
+          const { data: allSucs } = await supabase
+            .from("sucursales")
+            .select("capacidad_maxima")
+            .eq("esta_activa", true);
+          const totalCap = (allSucs ?? []).reduce((sum, s) => sum + (s.capacidad_maxima ?? 0), 0);
+          setCapacity(totalCap || DEFAULT_CAPACITY);
+        }
+        void loadAll();
       })
       .subscribe();
     return () => { void supabase.removeChannel(ch); };
-  }, []);
+  }, [activeSucursalId]);
 
   const aforoPct = aforo !== null ? Math.round((aforo / capacity) * 100) : 0;
   const aforoColor = aforoPct >= 90 ? "text-red-400" : aforoPct >= 70 ? "text-amber-300" : "text-brand-green";

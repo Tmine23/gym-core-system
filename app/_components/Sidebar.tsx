@@ -19,7 +19,7 @@ function LogoutIcon() {
 export function Sidebar() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin, sucursales, activeSucursalId, setActiveSucursalId } = useAuth();
 
   // Cerrar sidebar al navegar en móvil
   useEffect(() => { setOpen(false); }, [pathname]);
@@ -65,6 +65,23 @@ export function Sidebar() {
               <XIcon />
             </button>
           </div>
+
+          {/* Sucursal selector — Admin only */}
+          {isAdmin && sucursales.length > 0 && (
+            <div className="px-4 py-3 border-b border-[#1e293b]">
+              <p className="text-[9px] font-semibold uppercase tracking-widest text-slate-600 mb-1.5">Sucursal activa</p>
+              <select
+                value={activeSucursalId === null ? "all" : String(activeSucursalId)}
+                onChange={(e) => setActiveSucursalId(e.target.value === "all" ? null : Number(e.target.value))}
+                className="w-full appearance-none rounded-xl border border-[#1e293b] bg-[#0b1220] px-3 py-2 text-xs font-medium text-slate-200 outline-none transition-colors focus:border-brand-green/50 focus:ring-1 focus:ring-brand-green/20"
+              >
+                <option value="all">🌐 Todas las sucursales</option>
+                {sucursales.map((s) => (
+                  <option key={s.id} value={s.id}>📍 {s.nombre}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="flex-1 px-3 py-4 overflow-y-auto">
             <SidebarNav />

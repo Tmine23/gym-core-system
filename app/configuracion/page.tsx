@@ -1434,7 +1434,7 @@ function FacturacionTab({ showToast, empleadoId, sucursalId }: { showToast: (msg
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export default function ConfiguracionPage() {
-  const { user } = useAuth();
+  const { user, activeSucursalId } = useAuth();
   const [activeTab, setActiveTab] = useState<TabId>("sucursales");
   const [toast, setToast] = useState({ open: false, message: "" });
 
@@ -1443,7 +1443,7 @@ export default function ConfiguracionPage() {
   }, []);
 
   const empleadoId = user?.id ?? 1;
-  const sucursalId = user?.sucursal_id ?? 1;
+  const sucursalId = activeSucursalId ?? user?.sucursal_id ?? 1;
 
   return (
     <div className="space-y-6">

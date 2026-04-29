@@ -26,14 +26,28 @@ export type AuthUser = {
   };
 };
 
+export type SucursalOption = {
+  id: number;
+  nombre: string;
+  ciudad: string;
+};
+
 type AuthContextType = {
   user: AuthUser | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
+  /** Active sucursal ID for data filtering. null = all sucursales (Admin only). */
+  activeSucursalId: number | null;
+  setActiveSucursalId: (id: number | null) => void;
+  /** List of all active sucursales (loaded for Admin role). */
+  sucursales: SucursalOption[];
+  /** Whether the current user can see all sucursales. */
+  isAdmin: boolean;
 };
 
 const SESSION_KEY = "gym_session";
+const ACTIVE_SUC_KEY = "gym_active_sucursal";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -52,7 +66,11 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeSucursalId, setActiveSucursalIdState] = useState<number | null>(null);
+  const [sucursales, setSucursales] = useState<SucursalOption[]>([]);
   const router = useRouter();
+
+  const isAdmin = user?.rol?.nombre === "Admin";
 
   // Load session from localStorage on mount
   useEffect(() => {
@@ -61,12 +79,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (stored) {
         const parsed = JSON.parse(stored) as AuthUser;
         setUser(parsed);
+        // Restore active sucursal preference
+        const savedSuc = localStorage.getItem(ACTIVE_SUC_KEY);
+        if (savedSuc === "all") {
+          setActiveSucursalIdState(null);
+        } else if (savedSuc) {
+          setActiveSucursalIdState(Number(savedSuc));
+        } else {
+          setActiveSucursalIdState(parsed.sucursal_id);
+        }
       }
     } catch {
       localStorage.removeItem(SESSION_KEY);
+      localStorage.removeItem(ACTIVE_SUC_KEY);
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  // Load sucursales list for Admin
+  useEffect(() => {
+    if (!user) return;
+    if (user.rol?.nombre === "Admin") {
+      supabase.from("sucursales").select("id, nombre, ciudad").eq("esta_activa", true).order("nombre").then(({ data }) => {
+        setSucursales((data ?? []) as SucursalOption[]);
+      });
+    }
+  }, [user]);
+
+  const setActiveSucursalId = useCallback((id: number | null) => {
+    setActiveSucursalIdState(id);
+    localStorage.setItem(ACTIVE_SUC_KEY, id === null ? "all" : String(id));
   }, []);
 
   const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
@@ -101,6 +144,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Store session
       localStorage.setItem(SESSION_KEY, JSON.stringify(authUser));
       setUser(authUser);
+      setActiveSucursalIdState(authUser.sucursal_id);
+      localStorage.setItem(ACTIVE_SUC_KEY, String(authUser.sucursal_id));
 
       // Update ultimo_login
       await supabase
@@ -116,12 +161,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(ACTIVE_SUC_KEY);
     setUser(null);
+    setActiveSucursalIdState(null);
+    setSucursales([]);
     router.push("/login");
   }, [router]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, activeSucursalId, setActiveSucursalId, sucursales, isAdmin }}>
       {children}
     </AuthContext.Provider>
   );
