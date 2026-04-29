@@ -42,6 +42,8 @@ export type FacturaPDFData = {
     telefono: string | null;
     ciudad: string;
     nit: string | null;
+    razon_social: string | null;
+    cufd: string | null;
   };
   qrDataUrl?: string; // pre-generado antes de pasar al componente
 };
@@ -139,12 +141,14 @@ export function FacturaDocument({ pago, sucursal, qrDataUrl }: FacturaPDFData) {
   const compradorNombre = (factura?.razon_social_comprador || pago.socios?.apellido || "CLIENTE PARTICULAR").toUpperCase();
   const nitCi = factura?.nit_ci_comprador || pago.socios?.ci || "0";
   const nroFactura = factura?.numero ? fmtNumero(factura.numero) : "000000";
+  // Usar CUF de la sucursal como fallback
+  const cufValue = factura?.cufd || sucursal.cufd;
 
   return (
     <Document>
       <Page size={[226, 720]} style={S.page}>
         {/* Emisor */}
-        <Text style={S.title}>{sucursal.nombre.toUpperCase()}</Text>
+        <Text style={S.title}>{(sucursal.razon_social || sucursal.nombre).toUpperCase()}</Text>
         <View style={S.gap2} />
         <Text style={S.subtitle}>{sucursal.direccion}</Text>
         <Text style={S.subtitle}>{sucursal.ciudad}</Text>
@@ -157,9 +161,12 @@ export function FacturaDocument({ pago, sucursal, qrDataUrl }: FacturaPDFData) {
           <Text style={S.label}>NIT Emisor: {sucursal.nit ?? "—"}</Text>
           <Text style={S.label}>Factura N°: {nroFactura}</Text>
         </View>
-        {factura?.codigo_autorizacion
-          ? <Text style={[S.label, S.gap2]}>Cód. Autorización: {factura.codigo_autorizacion}</Text>
-          : null}
+        {cufValue ? (
+          <>
+            <Text style={S.labelBold}>CUF:</Text>
+            <Text style={[S.cuf, S.gap2]}>{cufValue}</Text>
+          </>
+        ) : null}
 
         <View style={S.divider} />
 
@@ -216,14 +223,6 @@ export function FacturaDocument({ pago, sucursal, qrDataUrl }: FacturaPDFData) {
 
         <View style={S.divider} />
 
-        {/* CUF */}
-        {factura?.cufd ? (
-          <>
-            <Text style={S.labelBold}>Código CUF:</Text>
-            <Text style={[S.cuf, S.gap4]}>{factura.cufd}</Text>
-          </>
-        ) : null}
-
         {/* QR */}
         {qrDataUrl ? (
           <View style={S.qrContainer}>
@@ -252,7 +251,7 @@ export async function abrirFacturaPDF(data: FacturaPDFData) {
   // Generar QR con URL SIAT
   const factura = data.pago.facturas;
   const nit = data.sucursal.nit ?? "";
-  const cuf = factura?.cufd ?? "";
+  const cuf = factura?.cufd || data.sucursal.cufd || "";
   const nro = factura?.numero ?? 0;
   const fecha = data.pago.fecha_pago.split("T")[0].replace(/-/g, "");
   const qrUrl = `https://siat.impuestos.gob.bo/consulta/QR?nit=${nit}&cuf=${cuf}&numero=${nro}&fecha=${fecha}`;

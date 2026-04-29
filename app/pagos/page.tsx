@@ -54,6 +54,7 @@ type SuscripcionActiva = {
 type SucursalInfo = {
   id: number; nombre: string; direccion: string;
   telefono: string | null; ciudad: string; nit: string | null;
+  razon_social: string | null; cufd: string | null;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -305,7 +306,6 @@ export default function PagosPage() {
   const [nitCi, setNitCi] = useState("");
   const [razonSocial, setRazonSocial] = useState("");
   const [cufd, setCufd] = useState("");
-  const [codAutorizacion, setCodAutorizacion] = useState("");
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -361,14 +361,12 @@ export default function PagosPage() {
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paginated = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
-  const rand12 = () => Array.from({ length: 12 }, () => Math.floor(Math.random() * 10)).join("");
-
   function openModal() {
     setStep(0); setSocioSearch(""); setSocioSel(null); setPlanSel(null);
     setSuscActiva(null); setConfirmarRenovacion(null); setFechaInicioPago(todayStr());
     setMonto(""); setMoneda("BOB"); setMetodo("EFECTIVO");
     setReferencia(""); setNitCi(""); setRazonSocial("");
-    setCufd(rand12()); setCodAutorizacion(rand12());
+    setCufd(""); 
     setErrors({});
     setShowModal(true);
   }
@@ -474,8 +472,8 @@ export default function PagosPage() {
         nit_ci_comprador: nitCi.trim(),
         razon_social_comprador: razonSocial.trim().toUpperCase(),
         fecha_emision: new Date().toISOString(),
-        cufd: cufd,
-        codigo_autorizacion: codAutorizacion,
+        cufd: sucursal?.cufd ?? null,
+        codigo_autorizacion: null,
       });
       if (facturaErr) throw facturaErr;
 
@@ -940,16 +938,6 @@ export default function PagosPage() {
                         placeholder="APELLIDO PATERNO"
                         className={inputCls(!!errors.razonSocial, !!razonSocial && !errors.razonSocial)} />
                     </Field>
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="CUFD" hint="Generado automáticamente">
-                        <input value={cufd} readOnly
-                          className="w-full rounded-2xl border border-[#1e293b] bg-[#0b1220]/60 px-4 py-3 text-sm text-slate-400 outline-none cursor-default font-mono tracking-wider" />
-                      </Field>
-                      <Field label="Cód. Autorización" hint="Generado automáticamente">
-                        <input value={codAutorizacion} readOnly
-                          className="w-full rounded-2xl border border-[#1e293b] bg-[#0b1220]/60 px-4 py-3 text-sm text-slate-400 outline-none cursor-default font-mono tracking-wider" />
-                      </Field>
-                    </div>
                   </div>
                 </div>
               )}
