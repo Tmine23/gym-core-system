@@ -2,6 +2,7 @@
 
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
+import { SucursalSelector } from "@/app/_components/SucursalSelector";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const TZ = "America/La_Paz";
@@ -152,12 +153,12 @@ function Toast({ open, message, onClose }: { open: boolean; message: string; onC
 // ── Aforo widget ──────────────────────────────────────────────────────────────
 
 function AforoLive() {
-  const { user, activeSucursalId } = useAuth();
+  const { user } = useAuth();
   const [count, setCount] = useState<number | null>(null);
   const CAPACITY = 50;
 
   async function load() {
-    const sucId = activeSucursalId ?? user?.sucursal_id ?? 1;
+    const sucId = user?.sucursal_id ?? 1;
     const { count: c } = await supabase
       .from("asistencias")
       .select("id", { count: "exact", head: true })
@@ -203,14 +204,15 @@ function AforoLive() {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function RecepcionPage() {
-  const { user, activeSucursalId } = useAuth();
+  const { user } = useAuth();
+  const [selectedSucursal, setSelectedSucursal] = useState<number | null>(user?.sucursal_id ?? null);
   const [tab, setTab] = useState<Tab>("entrada");
   const [toast, setToast] = useState({ open: false, message: "" });
   const aforoRef = useRef<{ reload: () => void } | null>(null);
 
   function showToast(msg: string) { setToast({ open: true, message: msg }); }
 
-  if (activeSucursalId === null) {
+  if (selectedSucursal === null) {
     return (
       <div className="space-y-6">
         <div className="rounded-2xl border border-[#1e293b] bg-gradient-to-b from-white/5 to-transparent p-6">
@@ -220,7 +222,7 @@ export default function RecepcionPage() {
         </div>
         <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-8 text-center">
           <p className="text-lg font-semibold text-amber-300">Selecciona una sucursal</p>
-          <p className="mt-2 text-sm text-slate-400">El módulo de recepción opera por sucursal. Selecciona una sucursal específica en el menú lateral.</p>
+          <p className="mt-2 text-sm text-slate-400">El módulo de recepción opera por sucursal. Selecciona una sucursal específica.</p>
         </div>
       </div>
     );
@@ -238,7 +240,10 @@ export default function RecepcionPage() {
             <h1 className="section-title">Recepción</h1>
             <p className="section-description">Registra entradas y salidas de socios en tiempo real.</p>
           </div>
-          <AforoLive />
+          <div className="flex items-center gap-3">
+            <SucursalSelector value={selectedSucursal} onChange={setSelectedSucursal} allowAll={false} />
+            <AforoLive />
+          </div>
         </div>
 
         {/* Tabs */}
@@ -274,7 +279,7 @@ export default function RecepcionPage() {
 // ── Panel Entrada ─────────────────────────────────────────────────────────────
 
 function EntradaPanel({ onSuccess }: { onSuccess: (msg: string) => void }) {
-  const { user, activeSucursalId } = useAuth();
+  const { user } = useAuth();
   const [ci, setCi] = useState("");
   const [searching, setSearching] = useState(false);
   const [socio, setSocio] = useState<SocioResult | null>(null);
@@ -348,7 +353,7 @@ function EntradaPanel({ onSuccess }: { onSuccess: (msg: string) => void }) {
     const { data } = await supabase
       .from("casilleros")
       .select("id,identificador_visual")
-      .eq("sucursal_id", activeSucursalId ?? user?.sucursal_id ?? 1)
+      .eq("sucursal_id", user?.sucursal_id ?? 1)
       .eq("estado", "LIBRE");
     const libres = (data ?? []) as CasilleroLibre[];
     if (libres.length === 0) { setCasilleroAsignado(null); return; }
@@ -370,7 +375,7 @@ function EntradaPanel({ onSuccess }: { onSuccess: (msg: string) => void }) {
     // Registrar asistencia
     const { error } = await supabase.from("asistencias").insert({
       socio_id: socio.id,
-      sucursal_id: activeSucursalId ?? user?.sucursal_id ?? 1,
+      sucursal_id: user?.sucursal_id ?? 1,
       casillero_id: casilleroId,
       fecha_entrada: new Date().toISOString(),
     });

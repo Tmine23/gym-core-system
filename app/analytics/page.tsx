@@ -1,6 +1,8 @@
 "use client";
 
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
+import { SucursalSelector } from "@/app/_components/SucursalSelector";
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { generarReporteBI, type ReporteData } from "./ReportePDF";
@@ -243,6 +245,8 @@ function insightConfig(tipo: Insight["tipo"], prioridad: Insight["prioridad"]) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
+  useAuth(); // ensure auth context is available
+  const [selectedSucursal, setSelectedSucursal] = useState<number | null>(null);
   const [periodo, setPeriodo] = useState<Periodo>("12m");
   const [loading, setLoading] = useState(true);
   const [insights, setInsights] = useState<Insight[]>([]);
@@ -254,6 +258,7 @@ export default function AnalyticsPage() {
   const [asistHoras, setAsistHoras] = useState<{ hora: number; lun: number; mar: number; mie: number; jue: number; vie: number; sab: number; dom: number }[]>([]);
   const [totalSocios, setTotalSocios] = useState(0);
   const [totalSuscritos, setTotalSuscritos] = useState(0);
+  const [comparativa, setComparativa] = useState<{ id: number; nombre: string; ingresosMes: number; asistenciasMes: number; suscActivas: number; tasaRetencion: number }[]>([]);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -264,7 +269,11 @@ export default function AnalyticsPage() {
     const desdeStr = desde.toISOString();
 
     // ── Ingresos ──
-    const { data: pagos } = await supabase.from("pagos").select("monto_pagado, codigo_moneda, fecha_pago").gte("fecha_pago", desdeStr);
+    let pagosQuery = supabase.from("pagos").select("monto_pagado, codigo_moneda, fecha_pago").gte("fecha_pago", desdeStr);
+    if (selectedSucursal !== null) {
+      pagosQuery = pagosQuery.eq("sucursal_id", selectedSucursal);
+    }
+    const { data: pagos } = await pagosQuery;
     const ingMap = new Map<string, IngresoMes>();
     for (const p of pagos ?? []) {
       const mes = (p.fecha_pago as string).slice(0, 7);
@@ -302,9 +311,17 @@ export default function AnalyticsPage() {
     }
 
     // ── Retención ──
-    const { data: subVencidas } = await supabase.from("suscripciones").select("socio_id, fecha_fin, fecha_inicio").gte("fecha_fin", desdeStr).lte("fecha_fin", hoy);
+    let subVencidasQuery = supabase.from("suscripciones").select("socio_id, fecha_fin, fecha_inicio").gte("fecha_fin", desdeStr).lte("fecha_fin", hoy);
+    if (selectedSucursal !== null) {
+      subVencidasQuery = subVencidasQuery.eq("sucursal_inscripcion_id", selectedSucursal);
+    }
+    const { data: subVencidas } = await subVencidasQuery;
     // Todas las suscripciones para verificar renovaciones (incluye futuras)
-    const { data: todasSubs } = await supabase.from("suscripciones").select("socio_id, fecha_inicio");
+    let todasSubsQuery = supabase.from("suscripciones").select("socio_id, fecha_inicio");
+    if (selectedSucursal !== null) {
+      todasSubsQuery = todasSubsQuery.eq("sucursal_inscripcion_id", selectedSucursal);
+    }
+    const { data: todasSubs } = await todasSubsQuery;
     const retMap = new Map<string, { vencieron: number; renovaron: number }>();
     for (const s of subVencidas ?? []) {
       const mes = (s.fecha_fin as string).slice(0, 7);
@@ -319,7 +336,11 @@ export default function AnalyticsPage() {
     setRetencionMes(retArr);
 
     // ── Planes ──
-    const { data: subs } = await supabase.from("suscripciones").select("planes(nombre)").eq("estado", "ACTIVA");
+    let subsQuery = supabase.from("suscripciones").select("planes(nombre)").eq("estado", "ACTIVA");
+    if (selectedSucursal !== null) {
+      subsQuery = subsQuery.eq("sucursal_inscripcion_id", selectedSucursal);
+    }
+    const { data: subs } = await subsQuery;
     const plMap = new Map<string, number>();
     for (const s of (subs ?? []) as unknown as { planes: { nombre: string | null } | null }[]) {
       const n = s.planes?.nombre ?? "Sin plan"; plMap.set(n, (plMap.get(n) ?? 0) + 1);
@@ -339,9 +360,17 @@ export default function AnalyticsPage() {
 
     // ── Datos para insights ──
     const treintaDias = new Date(Date.now() - 30 * 86400000).toISOString();
-    const { data: asistRecientes } = await supabase.from("asistencias").select("socio_id").gte("fecha_entrada", treintaDias);
+    let asistRecientesQuery = supabase.from("asistencias").select("socio_id").gte("fecha_entrada", treintaDias);
+    if (selectedSucursal !== null) {
+      asistRecientesQuery = asistRecientesQuery.eq("sucursal_id", selectedSucursal);
+    }
+    const { data: asistRecientes } = await asistRecientesQuery;
     const conAsist = new Set((asistRecientes ?? []).map((a) => a.socio_id));
-    const { data: suscActivas } = await supabase.from("suscripciones").select("socio_id").eq("estado", "ACTIVA").gte("fecha_fin", hoy);
+    let suscActivasQuery = supabase.from("suscripciones").select("socio_id").eq("estado", "ACTIVA").gte("fecha_fin", hoy);
+    if (selectedSucursal !== null) {
+      suscActivasQuery = suscActivasQuery.eq("sucursal_inscripcion_id", selectedSucursal);
+    }
+    const { data: suscActivas } = await suscActivasQuery;
     const sociosSuscritos = new Set((suscActivas ?? []).map((s) => s.socio_id));
     const sinAsist30d = Array.from(sociosSuscritos).filter((id) => !conAsist.has(id)).length;
 
@@ -350,19 +379,31 @@ export default function AnalyticsPage() {
 
     // Vencen en 7 días (solo si no tienen ya una renovación posterior)
     const en7d = new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0];
-    const { data: subsVencenPronto } = await supabase.from("suscripciones")
+    let subsVencenProntoQuery = supabase.from("suscripciones")
       .select("socio_id, fecha_fin")
       .eq("estado", "ACTIVA").gte("fecha_fin", hoy).lte("fecha_fin", en7d);
+    if (selectedSucursal !== null) {
+      subsVencenProntoQuery = subsVencenProntoQuery.eq("sucursal_inscripcion_id", selectedSucursal);
+    }
+    const { data: subsVencenPronto } = await subsVencenProntoQuery;
     // Filtrar los que ya tienen renovación
-    const { data: subsRenovadas } = await supabase.from("suscripciones")
+    let subsRenovadasQuery = supabase.from("suscripciones")
       .select("socio_id, fecha_inicio").eq("estado", "ACTIVA");
+    if (selectedSucursal !== null) {
+      subsRenovadasQuery = subsRenovadasQuery.eq("sucursal_inscripcion_id", selectedSucursal);
+    }
+    const { data: subsRenovadas } = await subsRenovadasQuery;
     const vencenReal = (subsVencenPronto ?? []).filter((s) =>
       !(subsRenovadas ?? []).some((r) => r.socio_id === s.socio_id && r.fecha_inicio > s.fecha_fin)
     );
     const vencen7 = vencenReal.length;
 
     // Horas pico/valle
-    const { data: asistAll } = await supabase.from("asistencias").select("fecha_entrada").gte("fecha_entrada", treintaDias);
+    let asistAllQuery = supabase.from("asistencias").select("fecha_entrada").gte("fecha_entrada", treintaDias);
+    if (selectedSucursal !== null) {
+      asistAllQuery = asistAllQuery.eq("sucursal_id", selectedSucursal);
+    }
+    const { data: asistAll } = await asistAllQuery;
     const horaCount = new Map<number, number>();
     for (const a of asistAll ?? []) { const h = new Date(a.fecha_entrada).getHours(); horaCount.set(h, (horaCount.get(h) ?? 0) + 1); }
     const horasArr = Array.from(horaCount.entries()).map(([hora, total]) => ({ hora, total })).sort((a, b) => b.total - a.total);
@@ -390,8 +431,33 @@ export default function AnalyticsPage() {
       pronosticoProxMes,
     }));
 
+    // ── Comparativa entre sucursales (solo cuando selectedSucursal es null = "Todas") ──
+    if (selectedSucursal === null) {
+      const { data: allSucs } = await supabase.from("sucursales").select("id, nombre").eq("esta_activa", true);
+      const comp: typeof comparativa = [];
+      for (const suc of allSucs ?? []) {
+        const { data: pagSuc } = await supabase.from("pagos").select("monto_pagado, codigo_moneda").eq("sucursal_id", suc.id).gte("fecha_pago", `${mesActual}-01T00:00:00`);
+        const ingMes = (pagSuc ?? []).filter((p) => p.codigo_moneda === "BOB").reduce((a, p) => a + Number(p.monto_pagado), 0);
+        const { count: asistMes } = await supabase.from("asistencias").select("id", { count: "exact", head: true }).eq("sucursal_id", suc.id).gte("fecha_entrada", `${mesActual}-01T00:00:00`);
+        const { count: suscAct } = await supabase.from("suscripciones").select("id", { count: "exact", head: true }).eq("sucursal_inscripcion_id", suc.id).eq("estado", "ACTIVA");
+        // Retención: vencieron vs renovaron último mes
+        const mesAnt = new Date(); mesAnt.setMonth(mesAnt.getMonth() - 1);
+        const mesAntStr = mesAnt.toISOString().slice(0, 7);
+        const { data: vencSuc } = await supabase.from("suscripciones").select("socio_id, fecha_fin").eq("sucursal_inscripcion_id", suc.id).gte("fecha_fin", `${mesAntStr}-01`).lte("fecha_fin", `${mesAntStr}-31`);
+        let venc = 0, renov = 0;
+        for (const s of vencSuc ?? []) {
+          venc++;
+          if ((todasSubs ?? []).some((o) => o.socio_id === s.socio_id && o.fecha_inicio > s.fecha_fin)) renov++;
+        }
+        comp.push({ id: suc.id, nombre: suc.nombre, ingresosMes: ingMes, asistenciasMes: asistMes ?? 0, suscActivas: suscAct ?? 0, tasaRetencion: venc > 0 ? Math.round((renov / venc) * 100) : 100 });
+      }
+      setComparativa(comp);
+    } else {
+      setComparativa([]);
+    }
+
     setLoading(false);
-  }, [periodo]);
+  }, [periodo, selectedSucursal]);
 
   useEffect(() => { void cargar(); }, [cargar]);
 
@@ -412,6 +478,7 @@ export default function AnalyticsPage() {
             <p className="section-description">Análisis descriptivo, predictivo y prescriptivo</p>
           </div>
           <div className="flex items-center gap-2">
+            <SucursalSelector value={selectedSucursal} onChange={setSelectedSucursal} allowAll={true} />
             <div className="flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1">
               {(["6m", "12m", "todo"] as Periodo[]).map((p) => (
                 <button key={p} onClick={() => setPeriodo(p)}
@@ -679,6 +746,95 @@ export default function AnalyticsPage() {
               </table>
             </div>
           </div>
+
+          {/* ═══ COMPARATIVA ENTRE SUCURSALES (solo cuando "Todas") ═══ */}
+          {selectedSucursal === null && comparativa.length > 1 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-sky-500/25 bg-sky-500/10 text-sky-400">📊</span>
+                <div>
+                  <p className="text-sm font-bold text-slate-100">Comparativa entre sucursales</p>
+                  <p className="text-xs text-slate-500">Rendimiento del mes actual por sede</p>
+                </div>
+              </div>
+
+              {/* Tarjetas comparativas */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {comparativa.map((suc) => (
+                  <div key={suc.id} className="rounded-2xl border border-[#1e293b] bg-white/5 p-5 space-y-3">
+                    <p className="text-sm font-bold text-slate-100">📍 {suc.nombre}</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <div className="text-[10px] uppercase tracking-widest text-slate-500">Ingresos mes</div>
+                        <div className="text-lg font-bold text-brand-green">{fmtMoney(suc.ingresosMes)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-widest text-slate-500">Asistencias mes</div>
+                        <div className="text-lg font-bold text-sky-400">{suc.asistenciasMes}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-widest text-slate-500">Susc. activas</div>
+                        <div className="text-lg font-bold text-violet-400">{suc.suscActivas}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-widest text-slate-500">Retención</div>
+                        <div className={`text-lg font-bold ${suc.tasaRetencion >= 70 ? "text-brand-green" : "text-red-400"}`}>{suc.tasaRetencion}%</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Gráfico de barras comparativo */}
+              <div className="rounded-2xl border border-[#1e293b] bg-white/5 p-5">
+                <p className="text-xs font-semibold uppercase tracking-widest text-slate-500 mb-4">Ingresos del mes por sucursal</p>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={comparativa} layout="vertical" margin={{ left: 10, right: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                    <XAxis type="number" tick={{ fill: "#64748b", fontSize: 11 }} tickFormatter={(v: number) => fmtMoney(v)} />
+                    <YAxis type="category" dataKey="nombre" tick={{ fill: "#94a3b8", fontSize: 11 }} width={160} />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Bar dataKey="ingresosMes" name="Ingresos Bs" fill="#76CB3E" radius={[0, 8, 8, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Tabla ranking */}
+              <div className="rounded-2xl border border-[#1e293b] overflow-hidden">
+                <div className="border-b border-[#1e293b] px-5 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Ranking de sucursales</p>
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-[#1e293b] bg-white/5">
+                      <th className="px-5 py-2 text-left text-[10px] font-semibold uppercase tracking-widest text-slate-500">#</th>
+                      <th className="px-5 py-2 text-left text-[10px] font-semibold uppercase tracking-widest text-slate-500">Sucursal</th>
+                      <th className="px-5 py-2 text-right text-[10px] font-semibold uppercase tracking-widest text-slate-500">Ingresos</th>
+                      <th className="px-5 py-2 text-right text-[10px] font-semibold uppercase tracking-widest text-slate-500">Asistencias</th>
+                      <th className="px-5 py-2 text-right text-[10px] font-semibold uppercase tracking-widest text-slate-500">Suscritos</th>
+                      <th className="px-5 py-2 text-right text-[10px] font-semibold uppercase tracking-widest text-slate-500">Retención</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...comparativa].sort((a, b) => b.ingresosMes - a.ingresosMes).map((suc, i) => (
+                      <tr key={suc.id} className="border-b border-[#1e293b]/60 hover:bg-white/5">
+                        <td className="px-5 py-3 text-slate-500 font-bold">{i + 1}</td>
+                        <td className="px-5 py-3 font-semibold text-slate-100">{suc.nombre}</td>
+                        <td className="px-5 py-3 text-right text-brand-green font-semibold">{fmtMoney(suc.ingresosMes)}</td>
+                        <td className="px-5 py-3 text-right text-sky-400">{suc.asistenciasMes}</td>
+                        <td className="px-5 py-3 text-right text-violet-400">{suc.suscActivas}</td>
+                        <td className="px-5 py-3 text-right">
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${suc.tasaRetencion >= 70 ? "border-brand-green/30 bg-brand-green/10 text-brand-green" : "border-red-500/30 bg-red-500/10 text-red-400"}`}>
+                            {suc.tasaRetencion}%
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Embudo */}
           <div className="rounded-2xl border border-[#1e293b] bg-white/5 p-5">

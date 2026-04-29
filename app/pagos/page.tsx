@@ -2,6 +2,7 @@
 
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
+import { SucursalSelector } from "@/app/_components/SucursalSelector";
 import { useEffect, useMemo, useState } from "react";
 
 // ─── PDF helper ───────────────────────────────────────────────────────────────
@@ -274,7 +275,8 @@ function HistorialPanel({ socioId, socioNombre, sucursal, onClose }: {
 const PAGE_SIZE = 20;
 
 export default function PagosPage() {
-  const { user, activeSucursalId } = useAuth();
+  const { user } = useAuth();
+  const [selectedSucursal, setSelectedSucursal] = useState<number | null>(user?.sucursal_id ?? null);
   const [rows, setRows] = useState<PagoRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [sucursal, setSucursal] = useState<SucursalInfo | null>(null);
@@ -319,8 +321,8 @@ export default function PagosPage() {
         socios(nombre,apellido,ci),
         suscripciones(plan_id,fecha_inicio,fecha_fin,planes(nombre,descripcion))`)
       .order("fecha_pago", { ascending: false });
-    if (activeSucursalId !== null) {
-      query = query.eq("sucursal_id", activeSucursalId);
+    if (selectedSucursal !== null) {
+      query = query.eq("sucursal_id", selectedSucursal);
     }
     const { data } = await query;
     setRows((data ?? []) as unknown as PagoRow[]);
@@ -328,12 +330,12 @@ export default function PagosPage() {
   }
 
   async function loadSucursal() {
-    const sucId = activeSucursalId ?? user?.sucursal_id ?? 1;
+    const sucId = selectedSucursal ?? user?.sucursal_id ?? 1;
     const { data } = await supabase.from("sucursales").select("*").eq("id", sucId).single();
     if (data) setSucursal(data as SucursalInfo);
   }
 
-  useEffect(() => { void refresh(); void loadSucursal(); }, [activeSucursalId]);
+  useEffect(() => { void refresh(); void loadSucursal(); }, [selectedSucursal]);
 
   // Stats
   const monthStart = monthStartStr();
@@ -449,7 +451,7 @@ export default function PagosPage() {
 
       const { data: susc, error: suscErr } = await supabase.from("suscripciones").insert({
         socio_id: socioSel.id, plan_id: planSel.id,
-        sucursal_inscripcion_id: activeSucursalId ?? user?.sucursal_id ?? 1,
+        sucursal_inscripcion_id: selectedSucursal ?? user?.sucursal_id ?? 1,
         empleado_registro_id: user?.id ?? 1,
         fecha_inicio: fechaInicio, fecha_fin: fechaFin, estado: "ACTIVA",
       }).select().single();
@@ -459,7 +461,7 @@ export default function PagosPage() {
         socio_id: socioSel.id, suscripcion_id: susc.id,
         monto_pagado: Number(monto), codigo_moneda: moneda,
         metodo_pago: metodo, referencia_transaccion: referencia || null,
-        empleado_cobrador_id: user?.id ?? 1, sucursal_id: activeSucursalId ?? user?.sucursal_id ?? 1,
+        empleado_cobrador_id: user?.id ?? 1, sucursal_id: selectedSucursal ?? user?.sucursal_id ?? 1,
       }).select(`id,monto_pagado,codigo_moneda,metodo_pago,referencia_transaccion,fecha_pago,socio_id,suscripcion_id,
         facturas(id,numero,nit_ci_comprador,razon_social_comprador,cufd,codigo_autorizacion,fecha_emision),
         socios(nombre,apellido,ci),
@@ -528,10 +530,13 @@ export default function PagosPage() {
             <h1 className="section-title">Pagos</h1>
             <p className="section-description">Registro y seguimiento de cobros</p>
           </div>
-          <button onClick={openModal}
-            className="flex items-center gap-2 rounded-2xl bg-brand-green px-5 py-2.5 text-sm font-bold text-[#020617] hover:bg-brand-green/90 transition-all shadow-lg shadow-brand-green/20">
-            <CashIcon /> Registrar pago
-          </button>
+          <div className="flex items-center gap-3">
+            <SucursalSelector value={selectedSucursal} onChange={setSelectedSucursal} allowAll={true} />
+            <button onClick={openModal}
+              className="flex items-center gap-2 rounded-2xl bg-brand-green px-5 py-2.5 text-sm font-bold text-[#020617] hover:bg-brand-green/90 transition-all shadow-lg shadow-brand-green/20">
+              <CashIcon /> Registrar pago
+            </button>
+          </div>
         </div>
       </div>
 

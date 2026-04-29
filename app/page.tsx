@@ -2,6 +2,7 @@
 
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
+import { SucursalSelector } from "@/app/_components/SucursalSelector";
 import Link from "next/link";
 import React, { useEffect, useState } from "react";
 
@@ -74,8 +75,8 @@ function DeltaBadge({ pct }: { pct: number }) {
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const { user, activeSucursalId } = useAuth();
-  // Sucursal dinámica — usa activeSucursalId del contexto
+  const { user } = useAuth();
+  const [selectedSucursal, setSelectedSucursal] = useState<number | null>(user?.sucursal_id ?? null);
   const [capacity, setCapacity] = useState<number>(DEFAULT_CAPACITY);
 
   // Operativo
@@ -103,11 +104,11 @@ export default function DashboardPage() {
   useEffect(() => {
     async function init() {
       // Cargar capacidad de la sucursal activa
-      if (activeSucursalId !== null) {
+      if (selectedSucursal !== null) {
         const { data: sucursalData } = await supabase
           .from("sucursales")
           .select("capacidad_maxima")
-          .eq("id", activeSucursalId)
+          .eq("id", selectedSucursal)
           .single();
         setCapacity(sucursalData?.capacidad_maxima ?? DEFAULT_CAPACITY);
       } else {
@@ -123,10 +124,10 @@ export default function DashboardPage() {
       void loadAll();
     }
     void init();
-  }, [activeSucursalId]);
+  }, [selectedSucursal]);
 
   async function loadAll() {
-    const sucId = activeSucursalId;
+    const sucId = selectedSucursal;
     const { start, end } = todayRange();
     const now = new Date();
     const mesStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
@@ -264,11 +265,11 @@ export default function DashboardPage() {
       .on("postgres_changes", { event: "*", schema: "public", table: "socios" }, () => void loadAll())
       .on("postgres_changes", { event: "*", schema: "public", table: "sucursales" }, async () => {
         // Recargar capacidad cuando cambia la sucursal
-        if (activeSucursalId !== null) {
+        if (selectedSucursal !== null) {
           const { data: sucursalData } = await supabase
             .from("sucursales")
             .select("capacidad_maxima")
-            .eq("id", activeSucursalId)
+            .eq("id", selectedSucursal)
             .single();
           setCapacity(sucursalData?.capacidad_maxima ?? DEFAULT_CAPACITY);
         } else {
@@ -283,7 +284,7 @@ export default function DashboardPage() {
       })
       .subscribe();
     return () => { void supabase.removeChannel(ch); };
-  }, [activeSucursalId]);
+  }, [selectedSucursal]);
 
   const aforoPct = aforo !== null ? Math.round((aforo / capacity) * 100) : 0;
   const aforoColor = aforoPct >= 90 ? "text-red-400" : aforoPct >= 70 ? "text-amber-300" : "text-brand-green";
@@ -335,14 +336,17 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Tabs — separados del header, pegados al contenido que controlan */}
-      <div className="flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1 w-fit">
-        {(["operativo", "financiero"] as const).map((t) => (
-          <button key={t} onClick={() => setTab(t)}
-            className={["rounded-xl px-6 py-2 text-sm font-semibold transition-all", tab === t ? "bg-brand-green/15 text-brand-green border border-brand-green/30" : "text-slate-400 hover:text-slate-200"].join(" ")}>
-            {t === "operativo" ? "⚡ Operativo" : "💰 Financiero"}
-          </button>
-        ))}
+      {/* Tabs + Sucursal selector */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1 w-fit">
+          {(["operativo", "financiero"] as const).map((t) => (
+            <button key={t} onClick={() => setTab(t)}
+              className={["rounded-xl px-6 py-2 text-sm font-semibold transition-all", tab === t ? "bg-brand-green/15 text-brand-green border border-brand-green/30" : "text-slate-400 hover:text-slate-200"].join(" ")}>
+              {t === "operativo" ? "⚡ Operativo" : "💰 Financiero"}
+            </button>
+          ))}
+        </div>
+        <SucursalSelector value={selectedSucursal} onChange={setSelectedSucursal} allowAll={true} />
       </div>
 
       {tab === "operativo" && (

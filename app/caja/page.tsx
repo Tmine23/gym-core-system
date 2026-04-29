@@ -2,6 +2,7 @@
 
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
+import { SucursalSelector } from "@/app/_components/SucursalSelector";
 import { useEffect, useMemo, useState } from "react";
 
 const TZ = "America/La_Paz";
@@ -51,7 +52,8 @@ function CheckIcon() { return <svg viewBox="0 0 24 24" className="h-4 w-4" fill=
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function CajaPage() {
-  const { user, activeSucursalId } = useAuth();
+  const { user } = useAuth();
+  const [selectedSucursal, setSelectedSucursal] = useState<number | null>(user?.sucursal_id ?? null);
   const [cierreHoy, setCierreHoy] = useState<CierreCaja | null | undefined>(undefined);
   const [historial, setHistorial] = useState<CierreCaja[]>([]);
   const [resumenHoy, setResumenHoy] = useState<ResumenDia>({ totalBob: 0, totalUsd: 0, efectivoBob: 0, efectivoUsd: 0, totalPagos: 0 });
@@ -63,7 +65,7 @@ export default function CajaPage() {
   const showToast = (msg: string) => { setToast({ open: true, message: msg }); setTimeout(() => setToast((t) => ({ ...t, open: false })), 2400); };
 
   async function load() {
-    if (activeSucursalId === null) {
+    if (selectedSucursal === null) {
       setLoading(false);
       return;
     }
@@ -73,15 +75,15 @@ export default function CajaPage() {
     const [cierreRes, pagosHoyRes, historialRes] = await Promise.all([
       supabase.from("cierres_caja")
         .select("id,fecha,efectivo_fisico_bob,efectivo_fisico_usd,notas,fecha_registro,empleados(nombre,apellido)")
-        .eq("sucursal_id", activeSucursalId).eq("fecha", today).maybeSingle(),
+        .eq("sucursal_id", selectedSucursal).eq("fecha", today).maybeSingle(),
       supabase.from("pagos")
         .select("monto_pagado,codigo_moneda,metodo_pago")
-        .eq("sucursal_id", activeSucursalId)
+        .eq("sucursal_id", selectedSucursal)
         .gte("fecha_pago", `${today}T00:00:00-04:00`)
         .lte("fecha_pago", `${today}T23:59:59-04:00`),
       supabase.from("cierres_caja")
         .select("id,fecha,efectivo_fisico_bob,efectivo_fisico_usd,notas,fecha_registro,empleados(nombre,apellido)")
-        .eq("sucursal_id", activeSucursalId)
+        .eq("sucursal_id", selectedSucursal)
         .order("fecha", { ascending: false })
         .limit(90),
     ]);
@@ -101,7 +103,7 @@ export default function CajaPage() {
     setLoading(false);
   }
 
-  useEffect(() => { void load(); }, [activeSucursalId]);
+  useEffect(() => { void load(); }, [selectedSucursal]);
 
   // Filtrar historial
   const filteredHistorial = useMemo(() => {
@@ -141,7 +143,7 @@ export default function CajaPage() {
   const diffUsd = yaHayCierre ? Number(cierreHoy!.efectivo_fisico_usd) - resumenHoy.efectivoUsd : 0;
   const cuadrado = Math.abs(diffBob) < 0.01 && Math.abs(diffUsd) < 0.01;
 
-  if (activeSucursalId === null) {
+  if (selectedSucursal === null) {
     return (
       <div className="space-y-6">
         <div className="rounded-2xl border border-[#1e293b] bg-gradient-to-b from-white/5 to-transparent p-6">
@@ -151,7 +153,7 @@ export default function CajaPage() {
         </div>
         <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-8 text-center">
           <p className="text-lg font-semibold text-amber-300">Selecciona una sucursal</p>
-          <p className="mt-2 text-sm text-slate-400">El módulo de caja opera por sucursal. Selecciona una sucursal específica en el menú lateral para ver su caja.</p>
+          <p className="mt-2 text-sm text-slate-400">El módulo de caja opera por sucursal. Selecciona una sucursal específica en el menú lateral.</p>
         </div>
       </div>
     );
@@ -175,12 +177,15 @@ export default function CajaPage() {
             <h1 className="section-title">Caja</h1>
             <p className="section-description">Cierre diario y historial de caja</p>
           </div>
-          {!yaHayCierre && !loading && (
-            <button onClick={() => setShowModal(true)}
-              className="flex items-center gap-2 rounded-2xl border border-brand-green/40 bg-brand-green/15 px-5 py-2.5 text-sm font-bold text-brand-green hover:bg-brand-green/25 transition-all">
-              🏦 Registrar cierre de hoy
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            <SucursalSelector value={selectedSucursal} onChange={setSelectedSucursal} allowAll={false} />
+            {!yaHayCierre && !loading && (
+              <button onClick={() => setShowModal(true)}
+                className="flex items-center gap-2 rounded-2xl border border-brand-green/40 bg-brand-green/15 px-5 py-2.5 text-sm font-bold text-brand-green hover:bg-brand-green/25 transition-all">
+                🏦 Registrar cierre de hoy
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -329,7 +334,7 @@ export default function CajaPage() {
       {showModal && (
         <ModalCierre
           resumenHoy={resumenHoy}
-          sucursalId={activeSucursalId ?? user?.sucursal_id ?? 1}
+          sucursalId={selectedSucursal ?? user?.sucursal_id ?? 1}
           empleadoId={user?.id ?? 1}
           onClose={() => setShowModal(false)}
           onSaved={() => { setShowModal(false); showToast("Cierre registrado"); void load(); }}
