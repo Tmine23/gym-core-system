@@ -2,7 +2,7 @@
 
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
-import { useEffect, useState, useCallback } from "react";
+import { Fragment, useEffect, useState, useCallback } from "react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -215,8 +215,8 @@ export default function AuditoriaPage() {
               </thead>
               <tbody>
                 {logs.map((log) => (
-                  <>
-                    <tr key={log.id} className="border-b border-[#1e293b]/60 hover:bg-white/5 cursor-pointer" onClick={() => toggleRow(log.id)}>
+                  <Fragment key={log.id}>
+                    <tr className="border-b border-[#1e293b]/60 hover:bg-white/5 cursor-pointer" onClick={() => toggleRow(log.id)}>
                       <td className="px-4 py-3 text-slate-300 font-mono text-xs whitespace-nowrap">{formatFecha(log.fecha_evento)}</td>
                       <td className="px-4 py-3 text-slate-200">
                         {log.empleados ? `${log.empleados.nombre} ${log.empleados.apellido}` : <span className="text-slate-600">—</span>}
@@ -257,7 +257,7 @@ export default function AuditoriaPage() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
             </table>
