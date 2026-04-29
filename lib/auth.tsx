@@ -153,13 +153,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .update({ ultimo_login: new Date().toISOString() })
         .eq("id", authUser.id);
 
+      // Log login event
+      await supabase.from("logs_sistema").insert({
+        empleado_id: authUser.id,
+        sucursal_id: authUser.sucursal_id,
+        tabla_afectada: "login",
+        registro_id: authUser.id,
+        operacion: "INSERT",
+        valor_nuevo: { email: authUser.email, nombre: authUser.nombre, apellido: authUser.apellido },
+      });
+
       return { success: true };
     } catch {
       return { success: false, error: "Error de conexión" };
     }
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    // Log logout event before clearing session
+    const currentUser = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+    if (currentUser) {
+      await supabase.from("logs_sistema").insert({
+        empleado_id: currentUser.id,
+        sucursal_id: currentUser.sucursal_id,
+        tabla_afectada: "login",
+        registro_id: currentUser.id,
+        operacion: "DELETE",
+        valor_nuevo: { email: currentUser.email, accion: "logout" },
+      });
+    }
+
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(ACTIVE_SUC_KEY);
     setUser(null);

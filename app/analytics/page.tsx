@@ -6,6 +6,8 @@ import { SucursalSelector } from "@/app/_components/SucursalSelector";
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { generarReporteBI, type ReporteData } from "./ReportePDF";
+import { generarReporteComparativo } from "./ReporteComparativoPDF";
+import { generarReporteMensual } from "./ReporteMensualPDF";
 import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   ComposedChart, Area,
@@ -738,6 +740,61 @@ export default function AnalyticsPage() {
               disabled={loading}
               className="flex items-center gap-2 rounded-2xl bg-brand-green px-4 py-2.5 text-sm font-bold text-[#020617] hover:bg-brand-green/90 disabled:opacity-50 transition-all">
               <DownloadIcon /> Reporte PDF
+            </button>
+            {selectedSucursal === null && comparativa.length > 0 && (
+              <button onClick={() => {
+                const hoy = new Date().toLocaleDateString("es-BO", { day: "2-digit", month: "long", year: "numeric", timeZone: "America/La_Paz" });
+                void generarReporteComparativo({
+                  fechaGeneracion: hoy,
+                  gymNombre: "Body Xtreme Gym",
+                  periodo: periodo === "6m" ? "Últimos 6 meses" : periodo === "12m" ? "Últimos 12 meses" : "Todo el historial",
+                  sucursales: comparativa.map((suc) => ({
+                    nombre: suc.nombre,
+                    ciudad: "",
+                    ingresosMes: suc.ingresosMes,
+                    asistenciasMes: suc.asistenciasMes,
+                    suscActivas: suc.suscActivas,
+                    tasaRetencion: suc.tasaRetencion,
+                    arpu: suc.suscActivas > 0 ? Math.round(suc.ingresosMes / suc.suscActivas) : 0,
+                    topPlan: planDist.length > 0 ? planDist[0].name : "—",
+                  })),
+                  totales: {
+                    ingresos: comparativa.reduce((a, s) => a + s.ingresosMes, 0),
+                    asistencias: comparativa.reduce((a, s) => a + s.asistenciasMes, 0),
+                    suscritos: comparativa.reduce((a, s) => a + s.suscActivas, 0),
+                  },
+                });
+              }}
+                disabled={loading}
+                className="flex items-center gap-2 rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:bg-white/10 disabled:opacity-50 transition-all">
+                <DownloadIcon /> Comparativo
+              </button>
+            )}
+            <button onClick={() => {
+              const hoy = new Date().toLocaleDateString("es-BO", { day: "2-digit", month: "long", year: "numeric", timeZone: "America/La_Paz" });
+              const mesActual = todayStr().slice(0, 7);
+              const mesNombre = new Date(mesActual + "-15").toLocaleDateString("es-BO", { month: "long", year: "numeric" });
+              void generarReporteMensual({
+                fechaGeneracion: hoy,
+                gymNombre: "Body Xtreme Gym",
+                sucursalNombre: selectedSucursal === null ? "Todas las sucursales" : (comparativa.find((s) => s.id === selectedSucursal)?.nombre ?? "Sucursal"),
+                mes: mesNombre,
+                ingresosBob: mesActualData?.bob ?? 0,
+                ingresosUsd: mesActualData?.usd ?? 0,
+                totalPagos: mesActualData?.count ?? 0,
+                porMetodo: ticketPorMetodo.map((t) => ({ metodo: t.metodo, monto: t.promedio * t.count, count: t.count })),
+                sociosNuevos: 0,
+                renovaciones: ultRet?.renovaron ?? 0,
+                bajas: (ultRet?.vencieron ?? 0) - (ultRet?.renovaron ?? 0),
+                totalActivos: totalSuscritos,
+                tasaRetencion: ultRet?.tasa ?? 0,
+                churnRate: 100 - (ultRet?.tasa ?? 0),
+                topPagos: [],
+              });
+            }}
+              disabled={loading}
+              className="flex items-center gap-2 rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:bg-white/10 disabled:opacity-50 transition-all">
+              <DownloadIcon /> Cierre Mensual
             </button>
           </div>
         </div>
