@@ -1,6 +1,7 @@
 "use client";
 
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
 import { useEffect, useMemo, useState, useCallback } from "react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -58,9 +59,6 @@ type FormState<T> = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const EMPLEADO_ID = 1;
-const SUCURSAL_ID = 1;
-
 const TABS: TabConfig[] = [
   { id: "sucursales", label: "Sucursales", icon: "🏢" },
   { id: "empleados", label: "Empleados", icon: "👥" },
@@ -79,6 +77,8 @@ function sanitizeForLog(obj: Record<string, unknown> | null): Record<string, unk
 }
 
 async function insertLog(params: {
+  empleado_id: number;
+  sucursal_id: number;
   tabla_afectada: string;
   registro_id: number;
   operacion: "INSERT" | "UPDATE" | "DELETE";
@@ -86,8 +86,8 @@ async function insertLog(params: {
   valor_nuevo: Record<string, unknown> | null;
 }) {
   await supabase.from("logs_sistema").insert({
-    empleado_id: EMPLEADO_ID,
-    sucursal_id: SUCURSAL_ID,
+    empleado_id: params.empleado_id,
+    sucursal_id: params.sucursal_id,
     tabla_afectada: params.tabla_afectada,
     registro_id: params.registro_id,
     operacion: params.operacion,
@@ -261,7 +261,7 @@ function FormModal({ title, kicker, onClose, onSave, saving, error, children }: 
 
 const emptySucursalForm = { nombre: "", direccion: "", telefono: "", ciudad: "", nit: "", capacidad_maxima: "50" };
 
-function SucursalesTab({ showToast }: { showToast: (msg: string) => void }) {
+function SucursalesTab({ showToast, empleadoId, sucursalId }: { showToast: (msg: string) => void; empleadoId: number; sucursalId: number }) {
   const [rows, setRows] = useState<SucursalRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -338,6 +338,8 @@ function SucursalesTab({ showToast }: { showToast: (msg: string) => void }) {
         const { error } = await supabase.from("sucursales").update(payload).eq("id", editingId);
         if (error) throw error;
         await insertLog({
+          empleado_id: empleadoId,
+          sucursal_id: sucursalId,
           tabla_afectada: "sucursales",
           registro_id: editingId!,
           operacion: "UPDATE",
@@ -349,6 +351,8 @@ function SucursalesTab({ showToast }: { showToast: (msg: string) => void }) {
         const { data, error } = await supabase.from("sucursales").insert({ ...payload, esta_activa: true }).select().single();
         if (error) throw error;
         await insertLog({
+          empleado_id: empleadoId,
+          sucursal_id: sucursalId,
           tabla_afectada: "sucursales",
           registro_id: data.id,
           operacion: "INSERT",
@@ -375,6 +379,8 @@ function SucursalesTab({ showToast }: { showToast: (msg: string) => void }) {
       return;
     }
     await insertLog({
+      empleado_id: empleadoId,
+      sucursal_id: sucursalId,
       tabla_afectada: "sucursales",
       registro_id: row.id,
       operacion: "UPDATE",
@@ -480,9 +486,21 @@ function SucursalesTab({ showToast }: { showToast: (msg: string) => void }) {
                   placeholder="Ej. Av. Banzer #123" className={inputCls(!!errors.direccion, !errors.direccion && !!form.direccion.trim())} />
               </Field>
             </div>
-            <Field label="Ciudad" hint="Obligatorio" error={errors.ciudad} success={!errors.ciudad && !!form.ciudad.trim()}>
-              <input value={form.ciudad} onChange={(e) => setForm((f) => ({ ...f, ciudad: e.target.value }))}
-                placeholder="Ej. Santa Cruz" className={inputCls(!!errors.ciudad, !errors.ciudad && !!form.ciudad.trim())} />
+            <Field label="Ciudad" hint="Obligatorio" error={errors.ciudad}>
+              <select value={form.ciudad} onChange={(e) => setForm((f) => ({ ...f, ciudad: e.target.value }))}
+                className={["w-full appearance-none rounded-2xl border bg-[#0b1220] px-4 py-3 text-sm text-slate-100 outline-none transition-colors",
+                  errors.ciudad ? "border-red-500/60" : "border-[#1e293b] focus:ring-2 focus:ring-brand-green/40 focus:border-brand-green/50"].join(" ")}>
+                <option value="">Seleccionar ciudad…</option>
+                <option value="La Paz">La Paz</option>
+                <option value="Santa Cruz">Santa Cruz</option>
+                <option value="Cochabamba">Cochabamba</option>
+                <option value="Oruro">Oruro</option>
+                <option value="Potosí">Potosí</option>
+                <option value="Sucre">Sucre</option>
+                <option value="Tarija">Tarija</option>
+                <option value="Trinidad">Trinidad</option>
+                <option value="Cobija">Cobija</option>
+              </select>
             </Field>
             <Field label="Teléfono" hint="Opcional">
               <input value={form.telefono} onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
@@ -518,7 +536,7 @@ async function hashPassword(password: string): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function EmpleadosTab({ showToast }: { showToast: (msg: string) => void }) {
+function EmpleadosTab({ showToast, empleadoId, sucursalId }: { showToast: (msg: string) => void; empleadoId: number; sucursalId: number }) {
   const [rows, setRows] = useState<EmpleadoRow[]>([]);
   const [roles, setRoles] = useState<RolRow[]>([]);
   const [sucursales, setSucursales] = useState<SucursalRow[]>([]);
@@ -613,6 +631,8 @@ function EmpleadosTab({ showToast }: { showToast: (msg: string) => void }) {
           throw error;
         }
         await insertLog({
+          empleado_id: empleadoId,
+          sucursal_id: sucursalId,
           tabla_afectada: "empleados",
           registro_id: editingId!,
           operacion: "UPDATE",
@@ -644,6 +664,8 @@ function EmpleadosTab({ showToast }: { showToast: (msg: string) => void }) {
           throw error;
         }
         await insertLog({
+          empleado_id: empleadoId,
+          sucursal_id: sucursalId,
           tabla_afectada: "empleados",
           registro_id: data.id,
           operacion: "INSERT",
@@ -670,6 +692,8 @@ function EmpleadosTab({ showToast }: { showToast: (msg: string) => void }) {
       return;
     }
     await insertLog({
+      empleado_id: empleadoId,
+      sucursal_id: sucursalId,
       tabla_afectada: "empleados",
       registro_id: row.id,
       operacion: "UPDATE",
@@ -822,7 +846,7 @@ const emptyRolForm = {
   permiso_gestionar_asistencias: true,
 };
 
-function RolesTab({ showToast }: { showToast: (msg: string) => void }) {
+function RolesTab({ showToast, empleadoId, sucursalId }: { showToast: (msg: string) => void; empleadoId: number; sucursalId: number }) {
   const [rows, setRows] = useState<RolRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -899,6 +923,8 @@ function RolesTab({ showToast }: { showToast: (msg: string) => void }) {
           throw error;
         }
         await insertLog({
+          empleado_id: empleadoId,
+          sucursal_id: sucursalId,
           tabla_afectada: "roles",
           registro_id: editingId!,
           operacion: "UPDATE",
@@ -917,6 +943,8 @@ function RolesTab({ showToast }: { showToast: (msg: string) => void }) {
           throw error;
         }
         await insertLog({
+          empleado_id: empleadoId,
+          sucursal_id: sucursalId,
           tabla_afectada: "roles",
           registro_id: data.id,
           operacion: "INSERT",
@@ -948,6 +976,8 @@ function RolesTab({ showToast }: { showToast: (msg: string) => void }) {
       return;
     }
     await insertLog({
+      empleado_id: empleadoId,
+      sucursal_id: sucursalId,
       tabla_afectada: "roles",
       registro_id: row.id,
       operacion: "DELETE",
@@ -1112,7 +1142,7 @@ function RolesTab({ showToast }: { showToast: (msg: string) => void }) {
 // ─── AjustesTab ───────────────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function AjustesTab({ showToast }: { showToast: (msg: string) => void }) {
+function AjustesTab({ showToast, empleadoId, sucursalId }: { showToast: (msg: string) => void; empleadoId: number; sucursalId: number }) {
   const [sucursales, setSucursales] = useState<SucursalRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -1163,6 +1193,8 @@ function AjustesTab({ showToast }: { showToast: (msg: string) => void }) {
     setSucursales((prev) => prev.map((s) => s.id === selectedId ? { ...s, capacidad_maxima: cap } : s));
 
     await insertLog({
+      empleado_id: empleadoId,
+      sucursal_id: sucursalId,
       tabla_afectada: "sucursales",
       registro_id: selectedId,
       operacion: "UPDATE",
@@ -1262,7 +1294,7 @@ function AjustesTab({ showToast }: { showToast: (msg: string) => void }) {
 // ─── FacturacionTab ───────────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function FacturacionTab({ showToast }: { showToast: (msg: string) => void }) {
+function FacturacionTab({ showToast, empleadoId, sucursalId }: { showToast: (msg: string) => void; empleadoId: number; sucursalId: number }) {
   const [sucursales, setSucursales] = useState<SucursalRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -1321,6 +1353,8 @@ function FacturacionTab({ showToast }: { showToast: (msg: string) => void }) {
     setSucursales((prev) => prev.map((s) => s.id === selectedId ? { ...s, ...payload } : s));
 
     await insertLog({
+      empleado_id: empleadoId,
+      sucursal_id: sucursalId,
       tabla_afectada: "sucursales",
       registro_id: selectedId,
       operacion: "UPDATE",
@@ -1400,12 +1434,16 @@ function FacturacionTab({ showToast }: { showToast: (msg: string) => void }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export default function ConfiguracionPage() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<TabId>("sucursales");
   const [toast, setToast] = useState({ open: false, message: "" });
 
   const showToast = useCallback((message: string) => {
     setToast({ open: true, message });
   }, []);
+
+  const empleadoId = user?.id ?? 1;
+  const sucursalId = user?.sucursal_id ?? 1;
 
   return (
     <div className="space-y-6">
@@ -1441,11 +1479,11 @@ export default function ConfiguracionPage() {
       </div>
 
       {/* Tab content */}
-      {activeTab === "sucursales" && <SucursalesTab showToast={showToast} />}
-      {activeTab === "empleados" && <EmpleadosTab showToast={showToast} />}
-      {activeTab === "roles" && <RolesTab showToast={showToast} />}
-      {activeTab === "facturacion" && <FacturacionTab showToast={showToast} />}
-      {activeTab === "ajustes" && <AjustesTab showToast={showToast} />}
+      {activeTab === "sucursales" && <SucursalesTab showToast={showToast} empleadoId={empleadoId} sucursalId={sucursalId} />}
+      {activeTab === "empleados" && <EmpleadosTab showToast={showToast} empleadoId={empleadoId} sucursalId={sucursalId} />}
+      {activeTab === "roles" && <RolesTab showToast={showToast} empleadoId={empleadoId} sucursalId={sucursalId} />}
+      {activeTab === "facturacion" && <FacturacionTab showToast={showToast} empleadoId={empleadoId} sucursalId={sucursalId} />}
+      {activeTab === "ajustes" && <AjustesTab showToast={showToast} empleadoId={empleadoId} sucursalId={sucursalId} />}
     </div>
   );
 }

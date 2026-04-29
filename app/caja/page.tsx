@@ -1,11 +1,10 @@
 "use client";
 
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
 import { useEffect, useMemo, useState } from "react";
 
 const TZ = "America/La_Paz";
-const SUCURSAL_ID = 1;
-const EMPLEADO_ID = 1;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,6 +51,7 @@ function CheckIcon() { return <svg viewBox="0 0 24 24" className="h-4 w-4" fill=
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function CajaPage() {
+  const { user } = useAuth();
   const [cierreHoy, setCierreHoy] = useState<CierreCaja | null | undefined>(undefined);
   const [historial, setHistorial] = useState<CierreCaja[]>([]);
   const [resumenHoy, setResumenHoy] = useState<ResumenDia>({ totalBob: 0, totalUsd: 0, efectivoBob: 0, efectivoUsd: 0, totalPagos: 0 });
@@ -69,15 +69,15 @@ export default function CajaPage() {
     const [cierreRes, pagosHoyRes, historialRes] = await Promise.all([
       supabase.from("cierres_caja")
         .select("id,fecha,efectivo_fisico_bob,efectivo_fisico_usd,notas,fecha_registro,empleados(nombre,apellido)")
-        .eq("sucursal_id", SUCURSAL_ID).eq("fecha", today).maybeSingle(),
+        .eq("sucursal_id", user?.sucursal_id ?? 1).eq("fecha", today).maybeSingle(),
       supabase.from("pagos")
         .select("monto_pagado,codigo_moneda,metodo_pago")
-        .eq("sucursal_id", SUCURSAL_ID)
+        .eq("sucursal_id", user?.sucursal_id ?? 1)
         .gte("fecha_pago", `${today}T00:00:00-04:00`)
         .lte("fecha_pago", `${today}T23:59:59-04:00`),
       supabase.from("cierres_caja")
         .select("id,fecha,efectivo_fisico_bob,efectivo_fisico_usd,notas,fecha_registro,empleados(nombre,apellido)")
-        .eq("sucursal_id", SUCURSAL_ID)
+        .eq("sucursal_id", user?.sucursal_id ?? 1)
         .order("fecha", { ascending: false })
         .limit(90),
     ]);
@@ -309,6 +309,8 @@ export default function CajaPage() {
       {showModal && (
         <ModalCierre
           resumenHoy={resumenHoy}
+          sucursalId={user?.sucursal_id ?? 1}
+          empleadoId={user?.id ?? 1}
           onClose={() => setShowModal(false)}
           onSaved={() => { setShowModal(false); showToast("Cierre registrado"); void load(); }}
         />
@@ -319,8 +321,10 @@ export default function CajaPage() {
 
 // ─── Modal Cierre ─────────────────────────────────────────────────────────────
 
-function ModalCierre({ resumenHoy, onClose, onSaved }: {
+function ModalCierre({ resumenHoy, sucursalId, empleadoId, onClose, onSaved }: {
   resumenHoy: ResumenDia;
+  sucursalId: number;
+  empleadoId: number;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -339,8 +343,8 @@ function ModalCierre({ resumenHoy, onClose, onSaved }: {
     setSaving(true);
     setError("");
     const { error: err } = await supabase.from("cierres_caja").upsert({
-      sucursal_id: SUCURSAL_ID,
-      empleado_id: EMPLEADO_ID,
+      sucursal_id: sucursalId,
+      empleado_id: empleadoId,
       fecha: todayStr(),
       efectivo_fisico_bob: fisicoBob,
       efectivo_fisico_usd: fisicoUsd,

@@ -1,9 +1,9 @@
 "use client";
 
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const SUCURSAL_ID = 1;
 const TZ = "America/La_Paz";
 function todayStr() { return new Date().toLocaleDateString("en-CA", { timeZone: TZ }); }
 
@@ -152,6 +152,7 @@ function Toast({ open, message, onClose }: { open: boolean; message: string; onC
 // ── Aforo widget ──────────────────────────────────────────────────────────────
 
 function AforoLive() {
+  const { user } = useAuth();
   const [count, setCount] = useState<number | null>(null);
   const CAPACITY = 50;
 
@@ -159,7 +160,7 @@ function AforoLive() {
     const { count: c } = await supabase
       .from("asistencias")
       .select("id", { count: "exact", head: true })
-      .eq("sucursal_id", SUCURSAL_ID)
+      .eq("sucursal_id", user?.sucursal_id ?? 1)
       .is("fecha_salida", null);
     setCount(c ?? 0);
   }
@@ -201,6 +202,7 @@ function AforoLive() {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function RecepcionPage() {
+  const { user } = useAuth();
   const [tab, setTab] = useState<Tab>("entrada");
   const [toast, setToast] = useState({ open: false, message: "" });
   const aforoRef = useRef<{ reload: () => void } | null>(null);
@@ -255,6 +257,7 @@ export default function RecepcionPage() {
 // ── Panel Entrada ─────────────────────────────────────────────────────────────
 
 function EntradaPanel({ onSuccess }: { onSuccess: (msg: string) => void }) {
+  const { user } = useAuth();
   const [ci, setCi] = useState("");
   const [searching, setSearching] = useState(false);
   const [socio, setSocio] = useState<SocioResult | null>(null);
@@ -328,7 +331,7 @@ function EntradaPanel({ onSuccess }: { onSuccess: (msg: string) => void }) {
     const { data } = await supabase
       .from("casilleros")
       .select("id,identificador_visual")
-      .eq("sucursal_id", SUCURSAL_ID)
+      .eq("sucursal_id", user?.sucursal_id ?? 1)
       .eq("estado", "LIBRE");
     const libres = (data ?? []) as CasilleroLibre[];
     if (libres.length === 0) { setCasilleroAsignado(null); return; }
@@ -350,7 +353,7 @@ function EntradaPanel({ onSuccess }: { onSuccess: (msg: string) => void }) {
     // Registrar asistencia
     const { error } = await supabase.from("asistencias").insert({
       socio_id: socio.id,
-      sucursal_id: SUCURSAL_ID,
+      sucursal_id: user?.sucursal_id ?? 1,
       casillero_id: casilleroId,
       fecha_entrada: new Date().toISOString(),
     });

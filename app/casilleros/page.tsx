@@ -1,9 +1,10 @@
 "use client";
 
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
 import { useEffect, useMemo, useState } from "react";
 
-const SUCURSAL_ID = 1; // hardcoded por ahora
+const SUCURSAL_ID_DEFAULT = 1; // fallback when user is null
 
 type EstadoCasillero = "LIBRE" | "OCUPADO" | "MANTENIMIENTO";
 
@@ -118,6 +119,7 @@ function Toast({ open, message, onClose }: { open: boolean; message: string; onC
 }
 
 export default function CasillerosPage() {
+  const { user } = useAuth();
   const [casilleros, setCasilleros] = useState<Casillero[]>([]);
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -129,7 +131,7 @@ export default function CasillerosPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalAnim, setModalAnim] = useState<"enter" | "leave">("enter");
   const [loteCount, setLoteCount] = useState("10");
-  const [loteSucursalId, setLoteSucursalId] = useState<number>(SUCURSAL_ID);
+  const [loteSucursalId, setLoteSucursalId] = useState<number>(user?.sucursal_id ?? SUCURSAL_ID_DEFAULT);
   const [loteLoading, setLoteLoading] = useState(false);
 
   // Selección múltiple
@@ -139,7 +141,7 @@ export default function CasillerosPage() {
   // Reset modal
   const [resetModal, setResetModal] = useState(false);
   const [resetAnim, setResetAnim] = useState<"enter" | "leave">("enter");
-  const [resetSucursalId, setResetSucursalId] = useState<number>(SUCURSAL_ID);
+  const [resetSucursalId, setResetSucursalId] = useState<number>(user?.sucursal_id ?? SUCURSAL_ID_DEFAULT);
   const [resetCount, setResetCount] = useState("50");
   const [resetLoading, setResetLoading] = useState(false);
 

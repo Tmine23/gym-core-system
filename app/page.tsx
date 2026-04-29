@@ -1,6 +1,7 @@
 "use client";
 
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
 import Link from "next/link";
 import React, { useEffect, useState } from "react";
 
@@ -74,8 +75,9 @@ function DeltaBadge({ pct }: { pct: number }) {
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
+  const { user } = useAuth();
   // Sucursal dinámica
-  const [sucursalId, setSucursalId] = useState<number>(DEFAULT_SUCURSAL_ID);
+  const [sucursalId, setSucursalId] = useState<number>(user?.sucursal_id ?? DEFAULT_SUCURSAL_ID);
   const [capacity, setCapacity] = useState<number>(DEFAULT_CAPACITY);
 
   // Operativo

@@ -1,6 +1,7 @@
 "use client";
 
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
 import { useEffect, useMemo, useState } from "react";
 
 // ─── PDF helper ───────────────────────────────────────────────────────────────
@@ -59,8 +60,6 @@ type SucursalInfo = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const EMPLEADO_ID = 1;
-const SUCURSAL_ID = 1;
 const TZ = "America/La_Paz";
 
 const METODOS: { value: MetodoPago; label: string; icon: string }[] = [
@@ -275,6 +274,7 @@ function HistorialPanel({ socioId, socioNombre, sucursal, onClose }: {
 const PAGE_SIZE = 20;
 
 export default function PagosPage() {
+  const { user } = useAuth();
   const [rows, setRows] = useState<PagoRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [sucursal, setSucursal] = useState<SucursalInfo | null>(null);
@@ -324,7 +324,7 @@ export default function PagosPage() {
   }
 
   async function loadSucursal() {
-    const { data } = await supabase.from("sucursales").select("*").eq("id", SUCURSAL_ID).single();
+    const { data } = await supabase.from("sucursales").select("*").eq("id", user?.sucursal_id ?? 1).single();
     if (data) setSucursal(data as SucursalInfo);
   }
 
@@ -444,8 +444,8 @@ export default function PagosPage() {
 
       const { data: susc, error: suscErr } = await supabase.from("suscripciones").insert({
         socio_id: socioSel.id, plan_id: planSel.id,
-        sucursal_inscripcion_id: SUCURSAL_ID,
-        empleado_registro_id: EMPLEADO_ID,
+        sucursal_inscripcion_id: user?.sucursal_id ?? 1,
+        empleado_registro_id: user?.id ?? 1,
         fecha_inicio: fechaInicio, fecha_fin: fechaFin, estado: "ACTIVA",
       }).select().single();
       if (suscErr) throw suscErr;
@@ -454,7 +454,7 @@ export default function PagosPage() {
         socio_id: socioSel.id, suscripcion_id: susc.id,
         monto_pagado: Number(monto), codigo_moneda: moneda,
         metodo_pago: metodo, referencia_transaccion: referencia || null,
-        empleado_cobrador_id: EMPLEADO_ID, sucursal_id: SUCURSAL_ID,
+        empleado_cobrador_id: user?.id ?? 1, sucursal_id: user?.sucursal_id ?? 1,
       }).select(`id,monto_pagado,codigo_moneda,metodo_pago,referencia_transaccion,fecha_pago,socio_id,suscripcion_id,
         facturas(id,numero,nit_ci_comprador,razon_social_comprador,cufd,codigo_autorizacion,fecha_emision),
         socios(nombre,apellido,ci),
