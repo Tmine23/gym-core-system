@@ -1,0 +1,538 @@
+================================================================================
+CONTEXTO COMPLETO DEL SISTEMA — BODY XTREME GYM OS
+Sistema de Inteligencia de Negocios para Gimnasios Multisucursal
+================================================================================
+
+TÍTULO DEL PROYECTO DE GRADO:
+"Sistema de Inteligencia de Negocios con Análisis Predictivo y Prescriptivo
+para la Gestión Estratégica y Retención de Clientes en Gimnasios Multisucursal"
+
+Carrera: Ingeniería de Sistemas
+País: Bolivia
+Ciudad: La Paz
+Zona horaria: America/La_Paz
+Moneda: BOB (Boliviano)
+Cliente: Body Xtreme Gym (gimnasio real con múltiples sucursales)
+
+================================================================================
+1. STACK TECNOLÓGICO
+================================================================================
+
+Frontend:
+- Next.js 16.2.0 (App Router, React 19)
+- TypeScript
+- Tailwind CSS (dark theme personalizado)
+- Recharts (gráficos interactivos)
+- @react-pdf/renderer (generación de PDFs)
+- PWA (Progressive Web App) instalable
+
+Backend/Base de datos:
+- Supabase (PostgreSQL hospedado en la nube)
+- Supabase Realtime (suscripciones en tiempo real para aforo)
+- No hay API REST propia — se usa el cliente Supabase directo desde el frontend
+
+Integraciones:
+- WhatsApp via Baileys (librería no oficial) para envío de mensajes de retención y campañas
+- QR Code generation para facturas (qrcode library)
+
+Autenticación:
+- Sistema propio (NO usa Supabase Auth)
+- Tabla empleados con password_hash (SHA-256)
+- Sesión almacenada en localStorage
+- Control de acceso por roles (Admin, Recepcionista, Trainer)
+
+Despliegue:
+- Frontend: Railway (o similar)
+- Base de datos: Supabase Cloud
+- WhatsApp: proceso Node.js en el mismo servidor
+
+================================================================================
+2. ARQUITECTURA DEL SISTEMA
+================================================================================
+
+Tipo: Aplicación web monolítica (Single Page Application)
+Patrón: Client-side rendering con "use client" components
+Comunicación: Cliente Supabase directo (sin API intermedia)
+
+Flujo de datos:
+  Usuario → Next.js (React) → Supabase Client JS → PostgreSQL (Supabase)
+  
+Estructura de archivos:
+  app/                    → Páginas (App Router de Next.js)
+    page.tsx              → Dashboard principal
+    login/page.tsx        → Página de login
+    recepcion/page.tsx    → Módulo de recepción
+    asistencias/page.tsx  → Módulo de asistencias
+    casilleros/page.tsx   → Módulo de casilleros
+    socios/page.tsx       → Módulo de socios
+    planes/page.tsx       → Módulo de planes
+    pagos/page.tsx        → Módulo de pagos + facturación
+    caja/page.tsx         → Módulo de caja
+    retencion/page.tsx    → Módulo de retención
+    campanas/page.tsx     → Módulo de campañas WhatsApp
+    analytics/page.tsx    → Módulo de BI & Analytics
+    configuracion/page.tsx → Módulo de configuración
+    auditoria/page.tsx    → Módulo de auditoría
+    _components/          → Componentes compartidos
+      Sidebar.tsx         → Barra lateral con navegación
+      SidebarNav.tsx      → Items de navegación con control por rol
+      SucursalSelector.tsx → Selector de sucursal (solo Admin)
+      AuthGuard.tsx       → Protección de rutas
+      ClientLayout.tsx    → Layout con auth + sidebar
+      GymLogo.tsx         → Logo SVG del gimnasio
+      AforoWidget.tsx     → Widget de aforo en tiempo real
+    analytics/
+      ReportePDF.tsx      → Reporte BI completo (2 páginas)
+      ReporteComparativoPDF.tsx → Reporte comparativo multisucursal
+      ReporteMensualPDF.tsx     → Reporte de cierre mensual
+    pagos/
+      FacturaPDF.tsx      → Factura tipo ticket (formato Bolivia SIN)
+  lib/
+    supabase.ts           → Cliente Supabase configurado
+    auth.tsx              → Contexto de autenticación (AuthProvider)
+    whatsapp.ts           → Conexión WhatsApp Baileys
+
+================================================================================
+3. BASE DE DATOS — ESQUEMA COMPLETO
+================================================================================
+
+13 tablas en PostgreSQL (Supabase):
+
+--- TABLA: sucursales ---
+Sedes físicas del gimnasio.
+Columnas: id (PK), nombre, direccion, telefono, ciudad, nit, esta_activa,
+  fecha_creacion, capacidad_maxima (CHECK > 0, default 50),
+  razon_social, cufd (datos de facturación)
+Relaciones: referenciada por empleados, suscripciones, pagos, casilleros,
+  asistencias, cierres_caja, logs_sistema
+
+--- TABLA: roles ---
+Perfiles de permisos para empleados.
+Columnas: id (PK), nombre (UNIQUE), descripcion,
+  permiso_ver_finanzas (bool), permiso_editar_usuarios (bool),
+  permiso_gestionar_asistencias (bool)
+Roles existentes: Admin (todo), Recepcionista (operativo), Trainer (asistencias)
+
+--- TABLA: empleados ---
+Usuarios del sistema (operadores).
+Columnas: id (PK), rol_id (FK→roles), sucursal_id (FK→sucursales),
+  ci (UNIQUE), nombre, apellido, email (UNIQUE), password_hash,
+  es_activo, ultimo_login, fecha_creacion
+Autenticación: SHA-256 hash de contraseña
+
+--- TABLA: socios ---
+Clientes/miembros del gimnasio.
+Columnas: id (PK), ci (UNIQUE), nombre, apellido, fecha_nacimiento,
+  genero (M/F/O), whatsapp (UNIQUE), huella_template, foto_url,
+  token_pwa, es_activo, fecha_registro, suscrito, nacionalidad, codigo_telefono
+Nota: Los socios son globales (no pertenecen a una sucursal específica)
+
+--- TABLA: planes ---
+Tipos de membresía disponibles.
+Columnas: id (PK), nombre, descripcion, monto (CHECK > 0),
+  codigo_moneda (BOB/USD), duracion_dias (CHECK > 0),
+  permite_todas_sucursales, fecha_creacion, activo
+
+--- TABLA: suscripciones ---
+Membresías de socios (relación socio-plan).
+Columnas: id (PK), socio_id (FK→socios), plan_id (FK→planes),
+  sucursal_inscripcion_id (FK→sucursales), empleado_registro_id (FK→empleados),
+  fecha_inicio, fecha_fin, estado (ACTIVA/VENCIDA/CANCELADA/PENDIENTE),
+  fecha_creacion
+
+--- TABLA: pagos ---
+Transacciones financieras.
+Columnas: id (PK), suscripcion_id (FK→suscripciones), socio_id (FK→socios),
+  empleado_cobrador_id (FK→empleados), sucursal_id (FK→sucursales),
+  monto_pagado (CHECK >= 0), codigo_moneda, metodo_pago
+  (EFECTIVO/QR_LIBELULA/TRANSFERENCIA/CRIPTOMONEDA),
+  referencia_transaccion, fecha_pago
+
+--- TABLA: facturas ---
+Documentos fiscales asociados a pagos (normativa Bolivia SIN).
+Columnas: id (PK), pago_id (FK→pagos, UNIQUE), numero (IDENTITY),
+  nit_ci_comprador, razon_social_comprador, cufd, codigo_autorizacion,
+  fecha_emision
+Genera PDF tipo ticket con QR para verificación SIAT
+
+--- TABLA: casilleros ---
+Lockers físicos por sucursal.
+Columnas: id (PK), sucursal_id (FK→sucursales), identificador_visual,
+  estado (LIBRE/OCUPADO/MANTENIMIENTO)
+
+--- TABLA: asistencias ---
+Registro de entrada/salida de socios.
+Columnas: id (PK), socio_id (FK→socios), sucursal_id (FK→sucursales),
+  casillero_id (FK→casilleros, nullable), fecha_entrada, fecha_salida (nullable)
+Nota: fecha_salida NULL = socio está dentro del gym (aforo en tiempo real)
+
+--- TABLA: cierres_caja ---
+Cierre diario de caja por sucursal.
+Columnas: id (PK), sucursal_id (FK→sucursales), empleado_id (FK→empleados),
+  fecha, efectivo_fisico_bob, efectivo_fisico_usd, notas, fecha_registro
+
+--- TABLA: campanas_envios ---
+Historial de mensajes WhatsApp enviados.
+Columnas: id (PK), socio_id (FK→socios), segmento, mensaje, estado,
+  fecha_envio, media_tipo
+Segmentos: sin_asistencia, no_renovaron, racha_perdida, proximos_vencer,
+  campana_marketing
+
+--- TABLA: logs_sistema ---
+Registro de auditoría de todas las operaciones.
+Columnas: id (PK), empleado_id (FK→empleados), sucursal_id (FK→sucursales),
+  tabla_afectada, registro_id, operacion (INSERT/UPDATE/DELETE),
+  valor_anterior (JSONB), valor_nuevo (JSONB), direccion_ip,
+  agente_usuario, fecha_evento
+Registra: login/logout, cambios en configuración, operaciones CRUD
+
+================================================================================
+4. MÓDULOS DEL SISTEMA — DESCRIPCIÓN FUNCIONAL
+================================================================================
+
+4.1 LOGIN (app/login/page.tsx)
+─────────────────────────────
+- Página de autenticación con animaciones (orbes flotantes, fade-in)
+- Logo SVG del gimnasio recreado vectorialmente
+- Autenticación contra tabla empleados (SHA-256)
+- Registro de login/logout en logs_sistema
+- Redirección automática si ya hay sesión
+
+4.2 DASHBOARD (app/page.tsx)
+────────────────────────────
+- Vista ejecutiva con dos pestañas: Operativo y Financiero
+- Operativo: aforo en tiempo real, entradas del día, socios en riesgo,
+  cumpleaños, socios nuevos del mes
+- Financiero: ingresos del día/mes, pagos recientes, ingresos últimos 7 días,
+  planes más vendidos, suscripciones por vencer
+- Selector de sucursal para Admin (ver datos de una sucursal o todas)
+- Datos dinámicos desde la BD (capacidad por sucursal configurable)
+
+4.3 RECEPCIÓN (app/recepcion/page.tsx)
+──────────────────────────────────────
+- Registro de entrada/salida de socios
+- Widget de aforo en tiempo real (con Supabase Realtime)
+- Búsqueda de socio por CI o nombre
+- Asignación de casillero al entrar
+- Liberación de casillero al salir
+- Validación de suscripción activa
+- Filtrado por sucursal
+
+4.4 ASISTENCIAS (app/asistencias/page.tsx)
+──────────────────────────────────────────
+- Historial completo de asistencias
+- Vista global (todas las asistencias) y por socio
+- Estadísticas: total entradas, promedio diario, hora pico
+- Racha de asistencia por socio
+- Filtros por fecha y búsqueda
+- Alimenta los datos de retención y analytics
+
+4.5 CASILLEROS (app/casilleros/page.tsx)
+────────────────────────────────────────
+- Vista visual de casilleros por sucursal (grid de cards)
+- Estados: LIBRE (verde), OCUPADO (rojo), MANTENIMIENTO (amarillo)
+- Creación en lote (ej: crear 50 casilleros de una vez)
+- Reset de casilleros (reorganizar numeración)
+- Selección múltiple para eliminación
+- Filtro por sucursal y estado
+
+4.6 SOCIOS (app/socios/page.tsx)
+────────────────────────────────
+- CRUD completo de socios (crear, editar, ver, desactivar)
+- Modal de registro con campos: CI, nombre, apellido, fecha nacimiento,
+  género, WhatsApp, nacionalidad, foto URL
+- Tabla con búsqueda, filtros por estado y suscripción
+- Historial de pagos por socio (panel lateral)
+- Generación de factura PDF desde el historial
+- Datos globales (no filtrados por sucursal)
+
+4.7 PLANES (app/planes/page.tsx)
+────────────────────────────────
+- CRUD de planes de membresía
+- Campos: nombre, descripción, monto, moneda, duración en días
+- Opción "permite todas sucursales"
+- Activar/desactivar planes
+- Estadísticas: total planes, activos, inactivos
+
+4.8 PAGOS (app/pagos/page.tsx)
+──────────────────────────────
+- Registro de pagos con flujo paso a paso (wizard de 4 pasos):
+  1. Seleccionar socio
+  2. Seleccionar plan y fechas
+  3. Ingresar monto y método de pago
+  4. Datos de facturación (NIT/CI comprador, razón social)
+- Métodos de pago: Efectivo, QR Libélula, Transferencia, Criptomoneda
+- Generación automática de factura (tabla facturas)
+- Generación de factura PDF tipo ticket (formato Bolivia SIN)
+  - Incluye: datos emisor, NIT, CUF, detalle, QR para verificación SIAT
+  - Monto en literal (ej: "DOSCIENTOS CON 00/100 BOLIVIANOS")
+- Historial de pagos con filtros
+- Selector de sucursal para Admin
+
+4.9 CAJA (app/caja/page.tsx)
+────────────────────────────
+- Cierre de caja diario por sucursal
+- Resumen del día: total BOB, total USD, efectivo, total pagos
+- Comparación sistema vs efectivo físico (diferencia)
+- Registro de efectivo físico contado (BOB y USD)
+- Historial de cierres con filtro por período
+- Gráfico de tendencia de cierres
+- Selector de sucursal (sin opción "todas")
+
+4.10 RETENCIÓN (app/retencion/page.tsx)
+───────────────────────────────────────
+- Panel de riesgo: identifica socios en riesgo de abandono
+- 4 segmentos de riesgo:
+  - Baja asistencia: suscritos con 0-2 visitas en 30 días
+  - No renovaron: suscripción vencida sin renovar
+  - Racha perdida: venían seguido pero pararon hace 10+ días
+  - Próximos a vencer: suscripción vence en 7 días
+- Score de riesgo (0-100): ALTO (≥65), MEDIO (≥35), BAJO (<35)
+  Calculado con: días para vencer (40pts) + asistencias 30d (35pts) + días sin visita (25pts)
+- Envío de mensajes WhatsApp personalizados por segmento
+- Templates predefinidos por segmento
+- Historial de acciones realizadas (solo retención, separado de campañas)
+- Métricas: tasa de retención, churn rate, total contactados
+- Datos globales (no filtrados por sucursal)
+
+4.11 CAMPAÑAS (app/campanas/page.tsx)
+─────────────────────────────────────
+- Creación de campañas de marketing por WhatsApp
+- Filtros de audiencia: género, antigüedad, estado suscripción, país
+- Templates de mensajes predefinidos (promoción, aniversario, bienvenida, etc.)
+- Adjuntar imagen o PDF (máx 10MB)
+- Envío masivo con progreso en tiempo real
+- Historial de campañas enviadas (solo marketing, separado de retención)
+- Datos globales
+
+4.12 BI & ANALYTICS (app/analytics/page.tsx) — MÓDULO PRINCIPAL DE BI
+──────────────────────────────────────────────────────────────────────
+Este es el corazón del sistema de Inteligencia de Negocios.
+Implementa las 3 capas de BI:
+
+CAPA 1 — ANÁLISIS DESCRIPTIVO (¿Qué pasó?):
+- KPIs ejecutivos con sparklines (tendencia 6 meses):
+  Ingresos del mes, Tasa de retención, Socios suscritos, ARPU
+- Ingresos mensuales (gráfico de barras)
+- Tasa de retención mensual (gráfico de línea)
+- Distribución por plan (gráfico de torta)
+- Socios por nacionalidad (barras horizontales con banderas)
+- Mapa de calor de asistencias por hora y día de la semana
+- Embudo de conversión (registrados → suscritos)
+
+CAPA 2 — ANÁLISIS PREDICTIVO (¿Qué va a pasar?):
+- Pronóstico de ingresos a 3 meses con 3 modelos:
+  1. Regresión Lineal: tendencia general
+  2. Media Móvil Ponderada (WMA): suaviza picos atípicos
+  3. Suavizado Exponencial de Holt: captura nivel + tendencia
+- Gráfico combinado mostrando datos reales vs proyecciones
+- Explicación de cada modelo
+
+CAPA 3 — ANÁLISIS PRESCRIPTIVO (¿Qué hacer?):
+- Motor de insights automático que genera recomendaciones:
+  - Alertas: caída de ingresos, retención baja
+  - Acciones: socios en riesgo de churn, sin asistencia, por vencer
+  - Oportunidades: hora valle, pronóstico positivo
+- Cada insight tiene: prioridad (alta/media/baja), descripción, métrica, acción sugerida
+- Links directos a los módulos relevantes (retención, campañas)
+
+ANÁLISIS AVANZADO:
+- Análisis de cohortes: tabla heatmap de retención por mes de inscripción
+  (qué % de socios inscritos en cada mes siguen activos en meses posteriores)
+- Segmentación demográfica:
+  - Ingresos por género (gráfico de barras)
+  - Asistencia promedio por rango de edad (18-25, 26-35, 36-45, 46+)
+- Frecuencia de asistencia:
+  - Distribución semanal (0 inactivo, 1x, 2x, 3x, 4x, 5+/semana)
+  - Correlación con renovación (los que van 3+/sem tienen X% más probabilidad de renovar)
+- Métricas financieras avanzadas:
+  - ARPU (Average Revenue Per User): ingreso mensual / socios suscritos
+  - LTV estimado (Lifetime Value): ARPU × promedio de meses de permanencia
+  - Ticket promedio por método de pago
+
+COMPARATIVA MULTISUCURSAL (cuando Admin selecciona "Todas"):
+- Tarjetas lado a lado por sucursal (ingresos, asistencias, suscritos, retención)
+- Gráfico de barras comparativo de ingresos
+- Tabla ranking de sucursales
+
+REPORTES PDF:
+1. Reporte BI completo (2 páginas): KPIs, insights, ingresos, retención,
+   pronóstico, cohortes, demografía, frecuencia, métricas financieras
+2. Reporte Comparativo Multisucursal: tabla comparativa con mejor performer
+   resaltado, KPIs consolidados
+3. Reporte de Cierre Mensual: resumen financiero, desglose por método de pago,
+   movimiento de socios, retención, top 5 pagos
+
+Selector de período: 6 meses, 12 meses, Todo el historial
+Selector de sucursal: sucursal específica o todas (Admin)
+
+4.13 CONFIGURACIÓN (app/configuracion/page.tsx)
+────────────────────────────────────────────────
+5 pestañas:
+- Sucursales: CRUD de sedes (nombre, dirección, ciudad, teléfono, NIT, capacidad)
+  Ciudad como select con los 9 departamentos de Bolivia
+- Empleados: CRUD de usuarios del sistema (nombre, CI, email, contraseña, rol, sucursal)
+  Password hasheado con SHA-256, detección de duplicados CI/email
+- Roles: CRUD de perfiles de permisos (3 toggles: finanzas, usuarios, asistencias)
+  Protección contra eliminación de roles con empleados asignados
+- Facturación: datos fiscales por sucursal (NIT emisor, razón social, CUF)
+  Leyenda normativa Bolivia no editable
+- Ajustes: capacidad máxima por sucursal, zona horaria (solo lectura), moneda (solo lectura)
+Todas las operaciones generan logs de auditoría
+
+4.14 AUDITORÍA (app/auditoria/page.tsx)
+───────────────────────────────────────
+- Registro completo de todas las operaciones del sistema
+- Filtros: rango de fechas, tabla afectada, tipo de operación, búsqueda por empleado
+- Tabla con: fecha/hora, empleado, sucursal, tabla afectada, operación (badges de colores)
+- Filas expandibles mostrando valor anterior y valor nuevo (JSON formateado)
+- Paginación de 50 registros
+- Registra automáticamente: login/logout, cambios en configuración, operaciones CRUD
+
+================================================================================
+5. SISTEMA MULTISUCURSAL — FLUJO
+================================================================================
+
+Roles y acceso:
+- Admin: ve TODAS las sucursales, tiene selector de sucursal en cada módulo
+- Recepcionista: ve solo SU sucursal, sin selector
+- Trainer: ve solo SU sucursal, sin selector
+
+Flujo de datos por sucursal:
+- Al loguearse, el sistema identifica la sucursal del empleado
+- Cada módulo que maneja datos por sucursal tiene su propio selector local
+- Módulos con selector (solo Admin): Dashboard, Pagos, Caja, Recepción, Analytics
+- Módulos globales (sin filtro): Socios, Retención, Campañas
+- Módulos con filtro propio: Casilleros (tiene su propio filtro interno)
+
+Selector de sucursal (SucursalSelector component):
+- Botón tipo chip con icono de ubicación
+- Dropdown con lista de sucursales activas
+- Opción "Todas las sucursales" (donde aplica)
+- Solo visible para rol Admin
+- Cada módulo maneja su propio estado de sucursal seleccionada
+
+================================================================================
+6. FACTURACIÓN — NORMATIVA BOLIVIA
+================================================================================
+
+El sistema genera facturas según normativa del SIN (Servicio de Impuestos Nacionales):
+- Formato tipo ticket (80mm de ancho)
+- Datos del emisor: razón social, NIT, dirección, teléfono
+- CUF (Código Único de Facturación) configurable por sucursal
+- Número de factura autoincremental
+- Datos del comprador: NIT/CI, razón social
+- Detalle del servicio (plan de membresía)
+- Monto en literal (conversión número a texto en español)
+- QR con URL de verificación SIAT
+- Leyenda normativa obligatoria (no editable)
+
+================================================================================
+7. WHATSAPP — INTEGRACIÓN
+================================================================================
+
+Librería: Baileys (conexión no oficial a WhatsApp Web)
+Funcionalidades:
+- Envío de mensajes de texto personalizados ({nombre} se reemplaza)
+- Envío de imágenes y documentos PDF
+- Conexión via QR (escanear desde WhatsApp del gym)
+- Estado de conexión en tiempo real (polling cada 3 segundos)
+- Reconexión automática
+
+Uso en el sistema:
+- Retención: envío de mensajes a socios en riesgo por segmento
+- Campañas: envío masivo de marketing con filtros de audiencia
+
+================================================================================
+8. MODELOS PREDICTIVOS IMPLEMENTADOS
+================================================================================
+
+8.1 Regresión Lineal
+- Calcula pendiente e intercepto de la serie temporal de ingresos
+- Proyecta la tendencia general a 3 meses
+- Limitación: no captura estacionalidad
+
+8.2 Media Móvil Ponderada (WMA)
+- Ventana de 3 meses con pesos crecientes (más reciente = más peso)
+- Suaviza picos atípicos
+- Proyecta basándose en los últimos 3 valores
+
+8.3 Suavizado Exponencial de Holt (Doble)
+- Parámetros: alpha=0.4 (nivel), beta=0.3 (tendencia)
+- Captura nivel actual + tendencia de cambio
+- Se adapta a cambios recientes en los datos
+- Modelo más sofisticado de los tres
+
+8.4 Score de Riesgo de Churn
+- Modelo de scoring propio (0-100 puntos)
+- Variables: días para vencer suscripción, asistencias en 30 días, días sin visita
+- Clasificación: ALTO (≥65), MEDIO (≥35), BAJO (<35)
+
+================================================================================
+9. DISEÑO UI/UX
+================================================================================
+
+Theme: Dark mode exclusivo
+- Background principal: #020617 (navy muy oscuro)
+- Background secundario: #0b1220
+- Bordes: #1e293b
+- Texto primario: slate-100
+- Texto secundario: slate-400
+- Texto muted: slate-500
+- Acento principal: brand-green (#76CB3E)
+- Cards: rounded-2xl con border y bg-white/5
+- Modales: rounded-[28px] con backdrop-blur-sm
+- Inputs: rounded-2xl con bg-[#0b1220]
+- Botón primario: bg-brand-green text-[#020617]
+- Badges de estado: verde (activo), rojo (inactivo), amber (warning)
+
+Componentes reutilizables:
+- Toast: notificaciones temporales (2.5s auto-dismiss)
+- FormModal: modal reutilizable para CRUD
+- Badge_Estado: indicador activo/inactivo
+- Toggle: switch on/off para permisos
+- Field: wrapper de input con label, hint, error, success indicator
+- SucursalSelector: dropdown de sucursal con diseño tipo chip
+
+PWA:
+- Instalable en tablets y móviles
+- Service Worker con estrategia network-first
+- Manifest con iconos SVG
+- Modo standalone (sin barra de navegador)
+
+================================================================================
+10. METODOLOGÍA DE DESARROLLO
+================================================================================
+
+- Desarrollo iterativo e incremental
+- Sin framework ágil formal (desarrollo directo con el cliente)
+- Versionamiento con Git (GitHub)
+- Commits descriptivos por feature/fix
+- Base de datos en la nube (Supabase) — sin migraciones locales
+- Testing manual por el desarrollador y el cliente
+- Despliegue continuo (push a main → deploy automático)
+
+================================================================================
+11. RESUMEN DE FUNCIONALIDADES POR MÓDULO
+================================================================================
+
+| Módulo         | Propósito                                    | Filtro sucursal |
+|----------------|----------------------------------------------|-----------------|
+| Login          | Autenticación y control de acceso            | N/A             |
+| Dashboard      | Vista ejecutiva operativa y financiera       | Sí (Admin)      |
+| Recepción      | Entrada/salida de socios + aforo             | Sí (Admin)      |
+| Asistencias    | Historial y estadísticas de asistencia       | No (global)     |
+| Casilleros     | Gestión visual de lockers                    | Filtro propio   |
+| Socios         | CRUD de miembros del gimnasio                | No (global)     |
+| Planes         | CRUD de tipos de membresía                   | No (global)     |
+| Pagos          | Registro de pagos + facturación PDF          | Sí (Admin)      |
+| Caja           | Cierre de caja diario                        | Sí (Admin)      |
+| Retención      | Identificación de socios en riesgo + WhatsApp| No (global)     |
+| Campañas       | Marketing masivo por WhatsApp                | No (global)     |
+| BI & Analytics | Inteligencia de negocios completa            | Sí (Admin)      |
+| Configuración  | Admin de sucursales, empleados, roles, etc.  | No              |
+| Auditoría      | Logs de todas las operaciones del sistema    | No              |
+
+================================================================================
+FIN DEL DOCUMENTO DE CONTEXTO
+================================================================================
