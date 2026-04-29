@@ -152,17 +152,15 @@ function Toast({ open, message, onClose }: { open: boolean; message: string; onC
 
 // ── Aforo widget ──────────────────────────────────────────────────────────────
 
-function AforoLive() {
-  const { user } = useAuth();
+function AforoLive({ sucursalId }: { sucursalId: number }) {
   const [count, setCount] = useState<number | null>(null);
   const CAPACITY = 50;
 
   async function load() {
-    const sucId = user?.sucursal_id ?? 1;
     const { count: c } = await supabase
       .from("asistencias")
       .select("id", { count: "exact", head: true })
-      .eq("sucursal_id", sucId)
+      .eq("sucursal_id", sucursalId)
       .is("fecha_salida", null);
     setCount(c ?? 0);
   }
@@ -172,13 +170,13 @@ function AforoLive() {
 
     // Realtime: escucha INSERT y UPDATE en asistencias y recalcula
     const channel = supabase
-      .channel("aforo-live")
+      .channel("aforo-live-" + sucursalId)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "asistencias" }, () => void load())
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "asistencias" }, () => void load())
       .subscribe();
 
     return () => { void supabase.removeChannel(channel); };
-  }, []);
+  }, [sucursalId]);
 
   const pct = count !== null ? Math.round((count / CAPACITY) * 100) : 0;
   const color = pct >= 90 ? "text-red-400" : pct >= 70 ? "text-amber-300" : "text-brand-green";
@@ -242,7 +240,7 @@ export default function RecepcionPage() {
           </div>
           <div className="flex items-center gap-3">
             <SucursalSelector value={selectedSucursal} onChange={setSelectedSucursal} allowAll={false} />
-            <AforoLive />
+            <AforoLive sucursalId={selectedSucursal ?? user?.sucursal_id ?? 1} />
           </div>
         </div>
 

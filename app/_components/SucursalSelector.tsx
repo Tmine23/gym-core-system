@@ -28,14 +28,6 @@ export function SucursalSelector({ value, onChange, allowAll = true }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  // Non-admin users don't see the selector
-  if (!isAdmin) return null;
-  if (sucursales.length === 0) return null;
-
-  const selected = value === null
-    ? { label: "Todas las sucursales", icon: "globe" as const }
-    : { label: sucursales.find((s) => s.id === value)?.nombre ?? "Sucursal", icon: "pin" as const };
-
   // Close on click outside
   useEffect(() => {
     if (!open) return;
@@ -45,6 +37,14 @@ export function SucursalSelector({ value, onChange, allowAll = true }: Props) {
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
+
+  // Non-admin users don't see the selector
+  if (!isAdmin) return null;
+  if (sucursales.length === 0) return null;
+
+  const selected = value === null
+    ? { label: "Todas las sucursales", icon: "globe" as const }
+    : { label: sucursales.find((s) => s.id === value)?.nombre ?? "Sucursal", icon: "pin" as const };
 
   return (
     <div className="relative" ref={ref}>

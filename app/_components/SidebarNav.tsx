@@ -24,7 +24,7 @@ function Icon({ children }: { children: React.ReactNode }) {
 
 const groups: NavGroup[] = [
   {
-    label: "Principal",
+    label: "Dashboard",
     items: [
       {
         href: "/",
@@ -40,6 +40,11 @@ const groups: NavGroup[] = [
           </Icon>
         ),
       },
+    ],
+  },
+  {
+    label: "Operaciones",
+    items: [
       {
         href: "/recepcion",
         label: "Recepción",
@@ -55,19 +60,6 @@ const groups: NavGroup[] = [
         ),
       },
       {
-        href: "/casilleros",
-        label: "Casilleros",
-        roles: ["Admin", "Recepcionista"],
-        icon: (
-          <Icon>
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="3" y="11" width="18" height="11" rx="2" />
-              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-            </svg>
-          </Icon>
-        ),
-      },
-      {
         href: "/asistencias",
         label: "Asistencias",
         roles: ["Admin", "Recepcionista", "Trainer"],
@@ -77,6 +69,19 @@ const groups: NavGroup[] = [
               <rect x="3" y="4" width="18" height="18" rx="2" />
               <path d="M16 2v4M8 2v4M3 10h18" />
               <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01" />
+            </svg>
+          </Icon>
+        ),
+      },
+      {
+        href: "/casilleros",
+        label: "Casilleros",
+        roles: ["Admin", "Recepcionista"],
+        icon: (
+          <Icon>
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
           </Icon>
         ),
@@ -127,10 +132,24 @@ const groups: NavGroup[] = [
           </Icon>
         ),
       },
+      {
+        href: "/caja",
+        label: "Caja",
+        roles: ["Admin", "Recepcionista"],
+        icon: (
+          <Icon>
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="2" y="6" width="20" height="13" rx="2" />
+              <path d="M2 10h20" />
+              <path d="M6 14h2M10 14h2" />
+            </svg>
+          </Icon>
+        ),
+      },
     ],
   },
   {
-    label: "Operaciones",
+    label: "Marketing",
     items: [
       {
         href: "/retencion",
@@ -156,35 +175,6 @@ const groups: NavGroup[] = [
           </Icon>
         ),
       },
-      {
-        href: "/maquinas",
-        label: "Máquinas",
-        soon: true,
-        roles: ["Admin"],
-        icon: (
-          <Icon>
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="2" y="7" width="20" height="14" rx="2" />
-              <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
-              <path d="M12 12v3M10 14h4" />
-            </svg>
-          </Icon>
-        ),
-      },
-      {
-        href: "/caja",
-        label: "Caja",
-        roles: ["Admin", "Recepcionista"],
-        icon: (
-          <Icon>
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="2" y="6" width="20" height="13" rx="2" />
-              <path d="M2 10h20" />
-              <path d="M6 14h2M10 14h2" />
-            </svg>
-          </Icon>
-        ),
-      },
     ],
   },
   {
@@ -192,7 +182,7 @@ const groups: NavGroup[] = [
     items: [
       {
         href: "/analytics",
-        label: "Analytics",
+        label: "BI & Analytics",
         roles: ["Admin"],
         icon: (
           <Icon>
