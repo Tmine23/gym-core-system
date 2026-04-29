@@ -70,7 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [sucursales, setSucursales] = useState<SucursalOption[]>([]);
   const router = useRouter();
 
-  const isAdmin = user?.rol?.nombre === "Admin";
+  const isAdmin = user?.rol?.nombre === "Admin" || user?.rol?.nombre === "Gerente";
 
   // Load session from localStorage on mount
   useEffect(() => {
@@ -97,10 +97,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Load sucursales list for Admin
+  // Load sucursales list for Admin and Gerente
   useEffect(() => {
     if (!user) return;
-    if (user.rol?.nombre === "Admin") {
+    if (user.rol?.nombre === "Admin" || user.rol?.nombre === "Gerente") {
       supabase.from("sucursales").select("id, nombre, ciudad").eq("esta_activa", true).order("nombre").then(({ data }) => {
         setSucursales((data ?? []) as SucursalOption[]);
       });

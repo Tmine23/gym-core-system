@@ -48,7 +48,7 @@ const groups: NavGroup[] = [
       {
         href: "/recepcion",
         label: "Recepción",
-        roles: ["Admin", "Recepcionista", "Trainer"],
+        roles: ["Admin", "Gerente", "Recepcionista"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -62,7 +62,7 @@ const groups: NavGroup[] = [
       {
         href: "/asistencias",
         label: "Asistencias",
-        roles: ["Admin", "Recepcionista", "Trainer"],
+        roles: ["Admin", "Gerente", "Recepcionista"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -76,7 +76,7 @@ const groups: NavGroup[] = [
       {
         href: "/casilleros",
         label: "Casilleros",
-        roles: ["Admin", "Recepcionista"],
+        roles: ["Admin", "Gerente", "Recepcionista"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -94,7 +94,7 @@ const groups: NavGroup[] = [
       {
         href: "/socios",
         label: "Socios",
-        roles: ["Admin", "Recepcionista"],
+        roles: ["Admin", "Gerente", "Recepcionista"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -109,7 +109,7 @@ const groups: NavGroup[] = [
       {
         href: "/planes",
         label: "Planes",
-        roles: ["Admin", "Recepcionista"],
+        roles: ["Admin", "Gerente", "Recepcionista"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -121,7 +121,7 @@ const groups: NavGroup[] = [
       {
         href: "/pagos",
         label: "Pagos",
-        roles: ["Admin", "Recepcionista"],
+        roles: ["Admin", "Gerente", "Recepcionista"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -135,7 +135,7 @@ const groups: NavGroup[] = [
       {
         href: "/caja",
         label: "Caja",
-        roles: ["Admin", "Recepcionista"],
+        roles: ["Admin", "Gerente", "Recepcionista"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -154,7 +154,7 @@ const groups: NavGroup[] = [
       {
         href: "/retencion",
         label: "Retención",
-        roles: ["Admin"],
+        roles: ["Admin", "Gerente"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -166,7 +166,7 @@ const groups: NavGroup[] = [
       {
         href: "/campanas",
         label: "Campañas",
-        roles: ["Admin"],
+        roles: ["Admin", "Gerente"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -183,7 +183,7 @@ const groups: NavGroup[] = [
       {
         href: "/analytics",
         label: "BI & Analytics",
-        roles: ["Admin"],
+        roles: ["Admin", "Gerente"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
