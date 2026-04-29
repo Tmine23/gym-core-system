@@ -434,9 +434,14 @@ export default function PagosPage() {
       const fechaInicio = fechaInicioPago;
       const fechaFin = addDays(fechaInicio, planSel.duracion_dias);
 
-      // Marcar suscripción anterior como vencida si existe
+      // Si es renovación anticipada, NO tocar la suscripción actual (sigue vigente)
+      // Solo marcar como VENCIDA si ya pasó su fecha_fin
       if (suscActiva) {
-        await supabase.from("suscripciones").update({ estado: "VENCIDA" }).eq("id", suscActiva.id);
+        const hoyLocal = todayStr();
+        if (suscActiva.fecha_fin < hoyLocal) {
+          await supabase.from("suscripciones").update({ estado: "VENCIDA" }).eq("id", suscActiva.id);
+        }
+        // Si aún está vigente, se mantiene ACTIVA — el socio puede entrar hasta que termine
       }
 
       const { data: susc, error: suscErr } = await supabase.from("suscripciones").insert({

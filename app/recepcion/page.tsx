@@ -462,6 +462,7 @@ function SalidaPanel({ onSuccess }: { onSuccess: (msg: string) => void }) {
   const [ci, setCi] = useState("");
   const [searching, setSearching] = useState(false);
   const [socio, setSocio] = useState<SocioResult | null>(null);
+  const [suscripcion, setSuscripcion] = useState<SuscripcionActiva | null>(null);
   const [asistencia, setAsistencia] = useState<AsistenciaActiva | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [noAsistencia, setNoAsistencia] = useState(false);
@@ -473,23 +474,29 @@ function SalidaPanel({ onSuccess }: { onSuccess: (msg: string) => void }) {
   useEffect(() => {
     const timer = setTimeout(async () => {
       const q = ci.trim();
-      if (!q) { setSocio(null); setNotFound(false); setNoAsistencia(false); setAsistencia(null); return; }
+      if (!q) { setSocio(null); setNotFound(false); setNoAsistencia(false); setAsistencia(null); setSuscripcion(null); return; }
       setSearching(true);
-      setSocio(null); setNotFound(false); setNoAsistencia(false); setAsistencia(null);
+      setSocio(null); setNotFound(false); setNoAsistencia(false); setAsistencia(null); setSuscripcion(null);
 
       const { data: socioData } = await supabase
         .from("socios").select("id,nombre,apellido,ci,foto_url,es_activo,suscrito,whatsapp").eq("ci", q).single();
 
       if (!socioData) { setNotFound(true); setSearching(false); return; }
-      setSocio(socioData as SocioResult);
+      const s = socioData as SocioResult;
+      setSocio(s);
 
-      const { data: asisData } = await supabase
-        .from("asistencias")
-        .select("id,fecha_entrada,casillero_id,casilleros(identificador_visual)")
-        .eq("socio_id", (socioData as SocioResult).id)
-        .is("fecha_salida", null)
-        .limit(1);
+      const [{ data: subData }, { data: asisData }] = await Promise.all([
+        supabase.from("suscripciones")
+          .select("id,fecha_inicio,fecha_fin,planes(nombre)")
+          .eq("socio_id", s.id).eq("estado", "ACTIVA")
+          .lte("fecha_inicio", todayStr()).gte("fecha_fin", todayStr())
+          .order("fecha_fin", { ascending: false }).limit(1),
+        supabase.from("asistencias")
+          .select("id,fecha_entrada,casillero_id,casilleros(identificador_visual)")
+          .eq("socio_id", s.id).is("fecha_salida", null).limit(1),
+      ]);
 
+      setSuscripcion(subData && subData.length > 0 ? (subData[0] as unknown as SuscripcionActiva) : null);
       if (!asisData || asisData.length === 0) { setNoAsistencia(true); } else {
         setAsistencia(asisData[0] as unknown as AsistenciaActiva);
       }
@@ -512,7 +519,7 @@ function SalidaPanel({ onSuccess }: { onSuccess: (msg: string) => void }) {
 
     setSubmitting(false);
     onSuccess(`Salida registrada${asistencia.casillero_id ? ` · Casillero ${asistencia.casilleros?.identificador_visual} liberado` : ""}`);
-    setCi(""); setSocio(null); setAsistencia(null); setNoAsistencia(false);
+    setCi(""); setSocio(null); setSuscripcion(null); setAsistencia(null); setNoAsistencia(false);
     inputRef.current?.focus();
   }
 
@@ -546,7 +553,7 @@ function SalidaPanel({ onSuccess }: { onSuccess: (msg: string) => void }) {
           </div>
         ) : null}
 
-        {socio ? <SocioCard socio={socio} suscripcion={null} suscripcionFutura={null} asistenciaActiva={asistencia} /> : null}
+        {socio ? <SocioCard socio={socio} suscripcion={suscripcion} suscripcionFutura={null} asistenciaActiva={asistencia} /> : null}
       </div>
 
       {socio && !notFound ? (

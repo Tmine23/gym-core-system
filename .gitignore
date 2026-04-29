@@ -42,3 +42,5 @@ next-env.d.ts
 
 # baileys whatsapp auth
 .baileys-auth/
+
+node_modules/

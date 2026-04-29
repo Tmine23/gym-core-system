@@ -100,6 +100,21 @@ export async function sendWAMessage(phone: string, text: string): Promise<void> 
   if (status !== "connected" || !sock) {
     throw new Error("WhatsApp no está conectado");
   }
-  const jid = `591${phone.replace(/\D/g, "")}@s.whatsapp.net`;
+  // phone ya viene como numero limpio; puede incluir código de país o no
+  const clean = phone.replace(/[\s\-\+]/g, "");
+  const jid = `${clean}@s.whatsapp.net`;
   await sock.sendMessage(jid, { text });
+}
+
+export async function sendWAMedia(phone: string, buffer: Buffer, mimetype: string, filename: string, caption?: string): Promise<void> {
+  const { sock, status } = g.__wa!;
+  if (status !== "connected" || !sock) throw new Error("WhatsApp no está conectado");
+  const clean = phone.replace(/[\s\-\+]/g, "");
+  const jid = `${clean}@s.whatsapp.net`;
+
+  if (mimetype.startsWith("image/")) {
+    await sock.sendMessage(jid, { image: buffer, caption: caption ?? undefined, mimetype });
+  } else {
+    await sock.sendMessage(jid, { document: buffer, mimetype, fileName: filename, caption: caption ?? undefined });
+  }
 }

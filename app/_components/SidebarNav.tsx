@@ -135,6 +135,17 @@ const groups: NavGroup[] = [
         ),
       },
       {
+        href: "/campanas",
+        label: "Campañas",
+        icon: (
+          <Icon>
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M22 2 11 13" /><path d="m22 2-7 20-4-9-9-4 20-7Z" />
+            </svg>
+          </Icon>
+        ),
+      },
+      {
         href: "/maquinas",
         label: "Máquinas",
         soon: true,
@@ -157,6 +168,23 @@ const groups: NavGroup[] = [
               <rect x="2" y="6" width="20" height="13" rx="2" />
               <path d="M2 10h20" />
               <path d="M6 14h2M10 14h2" />
+            </svg>
+          </Icon>
+        ),
+      },
+    ],
+  },
+  {
+    label: "Inteligencia",
+    items: [
+      {
+        href: "/analytics",
+        label: "Analytics",
+        icon: (
+          <Icon>
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 3v18h18" />
+              <path d="M7 16l4-8 4 4 4-8" />
             </svg>
           </Icon>
         ),

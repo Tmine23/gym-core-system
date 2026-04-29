@@ -19,6 +19,8 @@ type SocioRow = {
   fecha_nacimiento: string | null;
   foto_url: string | null;
   fecha_registro: string | null;
+  nacionalidad: string | null;
+  codigo_telefono: string | null;
 };
 
 type SuscripcionRow = {
@@ -50,9 +52,28 @@ type SocioForm = {
   whatsapp: string;
   genero: "M" | "F" | "O";
   fecha_nacimiento: string;
+  nacionalidad: string;
+  codigo_telefono: string;
 };
 
 type SocioFormErrors = Partial<Record<keyof SocioForm, string>>;
+
+// Países de la región con código telefónico
+const PAISES = [
+  { code: "BO", name: "Bolivia", tel: "591", flag: "🇧🇴" },
+  { code: "PE", name: "Perú", tel: "51", flag: "🇵🇪" },
+  { code: "CO", name: "Colombia", tel: "57", flag: "🇨🇴" },
+  { code: "AR", name: "Argentina", tel: "54", flag: "🇦🇷" },
+  { code: "CL", name: "Chile", tel: "56", flag: "🇨🇱" },
+  { code: "BR", name: "Brasil", tel: "55", flag: "🇧🇷" },
+  { code: "EC", name: "Ecuador", tel: "593", flag: "🇪🇨" },
+  { code: "PY", name: "Paraguay", tel: "595", flag: "🇵🇾" },
+  { code: "UY", name: "Uruguay", tel: "598", flag: "🇺🇾" },
+  { code: "VE", name: "Venezuela", tel: "58", flag: "🇻🇪" },
+  { code: "MX", name: "México", tel: "52", flag: "🇲🇽" },
+  { code: "US", name: "Estados Unidos", tel: "1", flag: "🇺🇸" },
+  { code: "ES", name: "España", tel: "34", flag: "🇪🇸" },
+];
 
 type FilterEstado = "todos" | "activo" | "inactivo";
 type FilterSub = "todos" | "suscrito" | "no_suscrito";
@@ -253,7 +274,7 @@ function PerfilPanel({ socio, onClose, onEdit }: {
 
   const activeSub = subs.find((s) => s.estado === "ACTIVA");
   const wa = socio.whatsapp ? normalizePhone(socio.whatsapp) : null;
-  const waHref = wa ? `https://wa.me/${wa}` : null;
+  const waHref = wa ? `https://wa.me/${socio.codigo_telefono ?? "591"}${wa}` : null;
 
   const diasRestantes = activeSub
     ? Math.ceil((new Date(activeSub.fecha_fin).getTime() - Date.now()) / 86400000)
@@ -486,16 +507,36 @@ function SocioModal({ mode, form, setForm, touched, setTouched, fieldErrors, onS
             <Field label="CI" hint="Obligatorio" error={touched.ci ? fieldErrors.ci : undefined} success={!!touched.ci && !fieldErrors.ci && form.ci.trim().length > 0}>
               <input value={form.ci} onChange={(e) => setForm((f) => ({ ...f, ci: e.target.value }))} onBlur={() => setTouched((t) => ({ ...t, ci: true }))} placeholder="Ej. 7832145" className={inputCls("ci")} />
             </Field>
-            <Field label="WhatsApp" hint="Mín. 8 dígitos" error={touched.whatsapp ? fieldErrors.whatsapp : undefined} success={!!touched.whatsapp && !fieldErrors.whatsapp}>
+            <Field label="Nacionalidad" hint="País de origen">
               <div className="relative">
-                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"><WhatsAppIcon /></span>
-                <input value={form.whatsapp} onChange={(e) => setForm((f) => ({ ...f, whatsapp: e.target.value }))} onBlur={() => setTouched((t) => ({ ...t, whatsapp: true }))} placeholder="+591 7xxxxxxx"
-                  className={[inputCls("whatsapp"), "pl-9 pr-14"].join(" ")} />
-                {form.whatsapp.trim() && (
-                  <span className={["pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono font-semibold", normalizePhone(form.whatsapp).length >= 8 ? "text-brand-green" : "text-slate-500"].join(" ")}>
-                    {normalizePhone(form.whatsapp).length}/8
-                  </span>
-                )}
+                <select value={form.nacionalidad}
+                  onChange={(e) => {
+                    const pais = PAISES.find((p) => p.code === e.target.value);
+                    setForm((f) => ({ ...f, nacionalidad: e.target.value, codigo_telefono: pais?.tel ?? f.codigo_telefono }));
+                  }}
+                  className="w-full appearance-none rounded-2xl border border-[#1e293b] bg-[#0b1220] px-4 py-3 pr-9 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-brand-green/50">
+                  {PAISES.map((p) => <option key={p.code} value={p.code}>{p.flag} {p.name}</option>)}
+                </select>
+              </div>
+            </Field>
+            <Field label="WhatsApp" hint="Mín. 8 dígitos" error={touched.whatsapp ? fieldErrors.whatsapp : undefined} success={!!touched.whatsapp && !fieldErrors.whatsapp}>
+              <div className="flex gap-2">
+                <div className="relative shrink-0 w-28">
+                  <select value={form.codigo_telefono}
+                    onChange={(e) => setForm((f) => ({ ...f, codigo_telefono: e.target.value }))}
+                    className="w-full appearance-none rounded-2xl border border-[#1e293b] bg-[#0b1220] px-3 py-3 pr-7 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-brand-green/50">
+                    {PAISES.map((p) => <option key={p.code} value={p.tel}>{p.flag} +{p.tel}</option>)}
+                  </select>
+                </div>
+                <div className="relative flex-1">
+                  <input value={form.whatsapp} onChange={(e) => setForm((f) => ({ ...f, whatsapp: e.target.value }))} onBlur={() => setTouched((t) => ({ ...t, whatsapp: true }))} placeholder="7xxxxxxx"
+                    className={[inputCls("whatsapp"), "pr-14"].join(" ")} />
+                  {form.whatsapp.trim() && (
+                    <span className={["pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono font-semibold", normalizePhone(form.whatsapp).length >= 8 ? "text-brand-green" : "text-slate-500"].join(" ")}>
+                      {normalizePhone(form.whatsapp).length}/8
+                    </span>
+                  )}
+                </div>
               </div>
             </Field>
             <Field label="Fecha de nacimiento" hint="Obligatorio" error={touched.fecha_nacimiento ? fieldErrors.fecha_nacimiento : undefined} success={!!touched.fecha_nacimiento && !fieldErrors.fecha_nacimiento && form.fecha_nacimiento.trim().length > 0}>
@@ -553,7 +594,7 @@ export default function SociosPage() {
 
   const [toast, setToast] = useState({ open: false, message: "" });
 
-  const [form, setForm] = useState<SocioForm>({ nombre: "", apellido: "", ci: "", whatsapp: "", genero: "M", fecha_nacimiento: "" });
+  const [form, setForm] = useState<SocioForm>({ nombre: "", apellido: "", ci: "", whatsapp: "", genero: "M", fecha_nacimiento: "", nacionalidad: "BO", codigo_telefono: "591" });
   const [touched, setTouched] = useState<Partial<Record<keyof SocioForm, boolean>>>({});
   const fieldErrors = useMemo(() => validateForm(form), [form]);
 
@@ -562,7 +603,7 @@ export default function SociosPage() {
     setError(null);
     const { data, error: err } = await supabase
       .from("socios")
-      .select("id,nombre,apellido,ci,whatsapp,genero,fecha_nacimiento,es_activo,suscrito,foto_url,fecha_registro")
+      .select("id,nombre,apellido,ci,whatsapp,genero,fecha_nacimiento,es_activo,suscrito,foto_url,fecha_registro,nacionalidad,codigo_telefono")
       .order("apellido");
     if (err) { setError(err.message); setLoading(false); return; }
     setRows((data ?? []) as SocioRow[]);
@@ -599,7 +640,7 @@ export default function SociosPage() {
 
   function openCreate() {
     setMode("create"); setEditingId(null);
-    setForm({ nombre: "", apellido: "", ci: "", whatsapp: "", genero: "M", fecha_nacimiento: "" });
+    setForm({ nombre: "", apellido: "", ci: "", whatsapp: "", genero: "M", fecha_nacimiento: "", nacionalidad: "BO", codigo_telefono: "591" });
     setTouched({}); setModalError(null); setModalOpen(true);
   }
 
@@ -610,6 +651,8 @@ export default function SociosPage() {
       whatsapp: row.whatsapp ?? "",
       genero: (row.genero === "M" || row.genero === "F" || row.genero === "O") ? row.genero : "M",
       fecha_nacimiento: row.fecha_nacimiento ?? "",
+      nacionalidad: row.nacionalidad ?? "BO",
+      codigo_telefono: row.codigo_telefono ?? "591",
     });
     setTouched({}); setModalError(null); setModalOpen(true);
     setPerfilSocio(null);
@@ -623,6 +666,7 @@ export default function SociosPage() {
     const payload = {
       nombre: form.nombre.trim(), apellido: form.apellido.trim(), ci: form.ci.trim(),
       whatsapp: form.whatsapp.trim(), genero: form.genero, fecha_nacimiento: form.fecha_nacimiento.trim(),
+      nacionalidad: form.nacionalidad, codigo_telefono: form.codigo_telefono,
     };
     const { error: err } = mode === "create"
       ? await supabase.from("socios").insert({ ...payload, es_activo: true })
@@ -738,7 +782,7 @@ export default function SociosPage() {
               ) : paged.map((r) => {
                 const isActive = Boolean(r.es_activo);
                 const wa = r.whatsapp ? normalizePhone(r.whatsapp) : null;
-                const waHref = wa ? `https://wa.me/${wa}` : null;
+                const waHref = wa ? `https://wa.me/${r.codigo_telefono ?? "591"}${wa}` : null;
                 return (
                   <tr key={r.id} className={["border-b border-[#1e293b] transition-colors hover:bg-white/5 cursor-pointer", !isActive ? "opacity-60" : ""].join(" ")}
                     onClick={() => setPerfilSocio(r)}>

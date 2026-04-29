@@ -1,150 +1,60 @@
 "use client";
 
 import { supabase } from "@/lib/supabase";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+type TabRetencion = "riesgo" | "historial" | "metricas";
+type Segmento = "sin_asistencia" | "no_renovaron" | "racha_perdida" | "proximos_vencer" | "todos";
 type RiesgoNivel = "ALTO" | "MEDIO" | "BAJO";
 
-type SocioChurn = {
+type SocioRiesgo = {
   id: number;
   nombre: string | null;
   apellido: string | null;
   whatsapp: string | null;
-  fecha_fin: string | null;
-  fecha_inicio: string | null;
-  dias_para_vencer: number | null;
-  asistencias_30d: number;
-  ultima_asistencia: string | null;
-  score: number; // 0-100, mayor = más riesgo
+  codigo_telefono: string | null;
+  score: number;
   nivel: RiesgoNivel;
-  razones: string[];
+  segmento: Exclude<Segmento, "todos">;
+  segmentoLabel: string;
+  detalle: string;
+  ultimoContacto: string | null;
 };
 
-type EnvioEstado = "idle" | "sending" | "ok" | "error";
-
-type TabPrincipal = "prediccion" | "campanas";
-
-type Segmento = {
-  id: "sin_asistencia" | "no_renovaron" | "racha_perdida" | "proximos_vencer";
-  label: string;
-  emoji: string;
-  color: string;
-  border: string;
-  bg: string;
-  templateDefault: string;
-};
-
-type SocioSegmento = {
+type EnvioHistorial = {
   id: number;
-  nombre: string | null;
-  apellido: string | null;
-  whatsapp: string | null;
-  detalle: string; // info contextual del segmento
+  socio_nombre: string;
+  segmento: string;
+  mensaje: string;
+  estado: string;
+  fecha_envio: string;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const TZ = "America/La_Paz";
 
-const SEGMENTOS: Segmento[] = [
-  {
-    id: "sin_asistencia",
-    label: "Sin asistencias recientes",
-    emoji: "👻",
-    color: "text-slate-400",
-    border: "border-slate-500/30",
-    bg: "bg-slate-500/5",
-    templateDefault: "Hola {nombre}, notamos que llevas un tiempo sin visitarnos. ¡Te esperamos en el gym! 💪 Recuerda que tu bienestar es nuestra prioridad.",
+const SEGMENTOS_CONFIG: Record<Exclude<Segmento, "todos">, { label: string; emoji: string; color: string; border: string; bg: string; template: string }> = {
+  sin_asistencia: {
+    label: "Baja asistencia", emoji: "👻", color: "text-slate-400", border: "border-slate-500/30", bg: "bg-slate-500/5",
+    template: "Hola {nombre}, notamos que llevas un tiempo sin visitarnos. ¡Te esperamos en el gym! 💪",
   },
-  {
-    id: "no_renovaron",
-    label: "No renovaron suscripción",
-    emoji: "⏰",
-    color: "text-red-400",
-    border: "border-red-500/30",
-    bg: "bg-red-500/5",
-    templateDefault: "Hola {nombre}, tu membresía ha vencido. ¡Renueva hoy y retoma tu rutina sin interrupciones! Contáctanos para más info. 🏋️",
+  no_renovaron: {
+    label: "No renovaron", emoji: "⏰", color: "text-red-400", border: "border-red-500/30", bg: "bg-red-500/5",
+    template: "Hola {nombre}, tu membresía ha vencido. ¡Renueva hoy y retoma tu rutina! 🏋️",
   },
-  {
-    id: "racha_perdida",
-    label: "Perdieron su racha",
-    emoji: "🔥",
-    color: "text-amber-400",
-    border: "border-amber-400/30",
-    bg: "bg-amber-400/5",
-    templateDefault: "Hola {nombre}, ¡tenías una racha increíble! Llevabas semanas entrenando constante y de repente paraste. ¿Todo bien? Te esperamos de vuelta. 💪",
+  racha_perdida: {
+    label: "Racha perdida", emoji: "🔥", color: "text-amber-400", border: "border-amber-400/30", bg: "bg-amber-400/5",
+    template: "Hola {nombre}, ¡tenías una racha increíble y paraste! ¿Todo bien? Te esperamos de vuelta 💪",
   },
-  {
-    id: "proximos_vencer",
-    label: "Próximos a vencer",
-    emoji: "📅",
-    color: "text-violet-400",
-    border: "border-violet-500/30",
-    bg: "bg-violet-500/5",
-    templateDefault: "Hola {nombre}, tu membresía vence pronto. ¡Renueva con anticipación y no pierdas ni un día de entrenamiento! 🏆",
+  proximos_vencer: {
+    label: "Próximos a vencer", emoji: "📅", color: "text-violet-400", border: "border-violet-500/30", bg: "bg-violet-500/5",
+    template: "Hola {nombre}, tu membresía vence pronto. ¡Renueva con anticipación! 🏆",
   },
-];
-
-// ─── Churn Score Model ────────────────────────────────────────────────────────
-// Factores:
-// 1. Días para vencer (peso 40): <7 días = 40pts, <15 = 30pts, <30 = 20pts
-// 2. Asistencias últimos 30 días (peso 35): 0 = 35pts, 1-2 = 25pts, 3-5 = 10pts, >5 = 0pts
-// 3. Días desde última asistencia (peso 25): >20 días = 25pts, >10 = 15pts, >5 = 5pts
-
-function calcularScore(socio: Omit<SocioChurn, "score" | "nivel" | "razones">): { score: number; nivel: RiesgoNivel; razones: string[] } {
-  let score = 0;
-  const razones: string[] = [];
-  const dias = socio.dias_para_vencer ?? 999;
-
-  // Factor 1: proximidad de vencimiento
-  if (dias < 0) {
-    score += 40;
-    razones.push(`Suscripción vencida hace ${Math.abs(dias)} día(s)`);
-  } else if (dias <= 7) {
-    score += 40;
-    razones.push(`Vence en ${dias} día(s)`);
-  } else if (dias <= 15) {
-    score += 30;
-    razones.push(`Vence en ${dias} días`);
-  } else if (dias <= 30) {
-    score += 20;
-    razones.push(`Vence en ${dias} días`);
-  }
-
-  // Factor 2: asistencias últimos 30 días
-  if (socio.asistencias_30d === 0) {
-    score += 35;
-    razones.push("Sin asistencias en 30 días");
-  } else if (socio.asistencias_30d <= 2) {
-    score += 25;
-    razones.push(`Solo ${socio.asistencias_30d} asistencia(s) en 30 días`);
-  } else if (socio.asistencias_30d <= 5) {
-    score += 10;
-    razones.push(`${socio.asistencias_30d} asistencias en 30 días`);
-  }
-
-  // Factor 3: días desde última asistencia
-  if (socio.ultima_asistencia) {
-    const diasDesde = Math.floor((Date.now() - new Date(socio.ultima_asistencia).getTime()) / 86400000);
-    if (diasDesde > 20) {
-      score += 25;
-      razones.push(`Última visita hace ${diasDesde} días`);
-    } else if (diasDesde > 10) {
-      score += 15;
-      razones.push(`Última visita hace ${diasDesde} días`);
-    } else if (diasDesde > 5) {
-      score += 5;
-    }
-  } else {
-    score += 25;
-    razones.push("Sin historial de asistencias");
-  }
-
-  const nivel: RiesgoNivel = score >= 65 ? "ALTO" : score >= 35 ? "MEDIO" : "BAJO";
-  return { score: Math.min(score, 100), nivel, razones };
-}
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -152,69 +62,59 @@ function todayStr() { return new Date().toLocaleDateString("en-CA", { timeZone: 
 function formatDate(iso: string) {
   if (!iso) return "—";
   const d = iso.includes("T") ? new Date(iso) : new Date(iso + "T12:00:00");
-  return d.toLocaleDateString("es-BO", { day: "2-digit", month: "short", year: "numeric", timeZone: TZ });
+  return d.toLocaleDateString("es-BO", { day: "2-digit", month: "short", timeZone: TZ });
+}
+function formatDateTime(iso: string) {
+  return new Date(iso).toLocaleString("es-BO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: TZ });
 }
 
-function nivelConfig(nivel: RiesgoNivel) {
-  return {
-    ALTO: { label: "Alto riesgo", color: "text-red-400", bg: "bg-red-500/10", border: "border-red-500/30", dot: "bg-red-400", bar: "bg-red-500" },
-    MEDIO: { label: "Riesgo medio", color: "text-amber-400", bg: "bg-amber-400/10", border: "border-amber-400/30", dot: "bg-amber-400", bar: "bg-amber-400" },
-    BAJO: { label: "Bajo riesgo", color: "text-brand-green", bg: "bg-brand-green/10", border: "border-brand-green/30", dot: "bg-brand-green", bar: "bg-brand-green" },
-  }[nivel];
+function calcularScore(diasVencer: number | null, asist30d: number, diasSinVisita: number | null): { score: number; nivel: RiesgoNivel } {
+  let score = 0;
+  const d = diasVencer ?? 999;
+  if (d < 0) score += 40; else if (d <= 7) score += 40; else if (d <= 15) score += 30; else if (d <= 30) score += 20;
+  if (asist30d === 0) score += 35; else if (asist30d <= 2) score += 25; else if (asist30d <= 5) score += 10;
+  const ds = diasSinVisita ?? 999;
+  if (ds > 20) score += 25; else if (ds > 10) score += 15; else if (ds > 5) score += 5;
+  const nivel: RiesgoNivel = score >= 65 ? "ALTO" : score >= 35 ? "MEDIO" : "BAJO";
+  return { score: Math.min(score, 100), nivel };
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
 
-function AlertIcon() { return <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /><path d="M12 9v4M12 17h.01" /></svg>; }
 function WhatsAppIcon() { return <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z" /></svg>; }
-function BrainIcon() { return <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 4.44-1.66Z" /><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-4.44-1.66Z" /></svg>; }
-function SendIcon() { return <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="m22 2-7 20-4-9-9-4 20-7Z" /><path d="M22 2 11 13" /></svg>; }
 function CheckIcon() { return <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6 9 17l-5-5" /></svg>; }
 function XIcon() { return <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>; }
+function SendIcon() { return <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="m22 2-7 20-4-9-9-4 20-7Z" /><path d="M22 2 11 13" /></svg>; }
 function RefreshIcon() { return <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /><path d="M3 21v-5h5" /></svg>; }
 
-// ─── Toast ────────────────────────────────────────────────────────────────────
-
-function Toast({ open, message, type, onClose }: { open: boolean; message: string; type: "ok" | "error"; onClose: () => void }) {
-  useEffect(() => { if (!open) return; const t = setTimeout(onClose, 3000); return () => clearTimeout(t); }, [open, onClose]);
-  return (
-    <div className={["fixed right-4 top-4 z-[70] transition-all duration-200", open ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-2 pointer-events-none"].join(" ")}>
-      <div className={["flex items-center gap-3 rounded-2xl border px-4 py-3 shadow-2xl", type === "ok" ? "border-brand-green/25 bg-[#0b1220]" : "border-red-500/25 bg-[#0b1220]"].join(" ")}>
-        <span className={["flex h-8 w-8 items-center justify-center rounded-xl border", type === "ok" ? "border-brand-green/25 bg-brand-green/10 text-brand-green" : "border-red-500/25 bg-red-500/10 text-red-400"].join(" ")}>
-          {type === "ok" ? <CheckIcon /> : <XIcon />}
-        </span>
-        <span className="text-sm font-semibold text-slate-100">{message}</span>
-      </div>
-    </div>
-  );
+function nivelBadge(nivel: RiesgoNivel) {
+  const cfg = { ALTO: "border-red-500/30 bg-red-500/10 text-red-400", MEDIO: "border-amber-400/30 bg-amber-400/10 text-amber-400", BAJO: "border-brand-green/30 bg-brand-green/10 text-brand-green" };
+  return <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${cfg[nivel]}`}>{nivel}</span>;
 }
-
-// ─── Modal WhatsApp ───────────────────────────────────────────────────────────
 
 // ─── Modal WhatsApp (Baileys) ─────────────────────────────────────────────────
 
-function ModalWhatsApp({ socios, templateInicial, onClose }: { socios: SocioChurn[]; templateInicial?: string; onClose: () => void }) {
-  const conWhatsapp = socios.filter((s) => s.whatsapp);
-  const [mensaje, setMensaje] = useState(
-    templateInicial ?? `Hola {nombre}, te recordamos que tu membresía en el gimnasio está próxima a vencer. ¡Renueva ahora y sigue entrenando sin interrupciones! 💪`
-  );
-  const [waStatus, setWaStatus] = useState<"disconnected" | "connecting" | "qr" | "connected">("connecting");
+function ModalEnvio({ socios, segmento, onClose, onSent }: {
+  socios: SocioRiesgo[]; segmento: Segmento; onClose: () => void; onSent: () => void;
+}) {
+  const conWA = socios.filter((s) => s.whatsapp);
+  const cfg = segmento !== "todos" ? SEGMENTOS_CONFIG[segmento] : null;
+  const [mensaje, setMensaje] = useState(cfg?.template ?? "Hola {nombre}, te esperamos en el gym! 💪");
+  const [waStatus, setWaStatus] = useState<string>("connecting");
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [resultados, setResultados] = useState<{ id: number; nombre: string; estado: "ok" | "error" | "pending" }[]>(
-    conWhatsapp.map((s) => ({ id: s.id, nombre: [s.nombre, s.apellido].filter(Boolean).join(" "), estado: "pending" }))
+    conWA.map((s) => ({ id: s.id, nombre: [s.nombre, s.apellido].filter(Boolean).join(" "), estado: "pending" }))
   );
   const [iniciado, setIniciado] = useState(false);
 
-  // Polling de estado WhatsApp
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
     async function poll() {
       try {
         const res = await fetch("/api/whatsapp/status");
-        const data = await res.json() as { status: typeof waStatus; qr: string | null };
-        setWaStatus(data.status);
-        setQrDataUrl(data.qr);
+        const data = await res.json() as { status: string; qr: string | null };
+        setWaStatus(data.status); setQrDataUrl(data.qr);
         if (data.status === "connected") clearInterval(interval);
       } catch { /* ignore */ }
     }
@@ -223,25 +123,30 @@ function ModalWhatsApp({ socios, templateInicial, onClose }: { socios: SocioChur
     return () => clearInterval(interval);
   }, []);
 
-  async function enviarMensajes() {
-    setEnviando(true);
-    setIniciado(true);
-    for (const socio of conWhatsapp) {
+  async function enviar() {
+    setEnviando(true); setIniciado(true);
+    for (const socio of conWA) {
       const texto = mensaje.replace("{nombre}", socio.nombre ?? "socio");
-      const numero = (socio.whatsapp ?? "").replace(/\D/g, "");
+      const numero = `${socio.codigo_telefono ?? "591"}${(socio.whatsapp ?? "").replace(/\D/g, "")}`;
       try {
         const res = await fetch("/api/whatsapp/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+          method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ phone: numero, text: texto }),
         });
-        setResultados((prev) => prev.map((r) => r.id === socio.id ? { ...r, estado: res.ok ? "ok" : "error" } : r));
+        const estado = res.ok ? "ok" : "error";
+        setResultados((prev) => prev.map((r) => r.id === socio.id ? { ...r, estado } : r));
+        // Registrar en historial
+        if (res.ok) {
+          await supabase.from("campanas_envios").insert({
+            socio_id: socio.id, segmento: socio.segmento, mensaje: texto, estado: "enviado",
+          });
+        }
       } catch {
         setResultados((prev) => prev.map((r) => r.id === socio.id ? { ...r, estado: "error" } : r));
       }
       await new Promise((r) => setTimeout(r, 800));
     }
-    setEnviando(false);
+    setEnviando(false); onSent();
   }
 
   const okCount = resultados.filter((r) => r.estado === "ok").length;
@@ -253,113 +158,75 @@ function ModalWhatsApp({ socios, templateInicial, onClose }: { socios: SocioChur
       <div className="relative w-full max-w-lg rounded-3xl border border-[#1e293b] bg-[#020617] shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between border-b border-[#1e293b] px-6 py-4 shrink-0">
           <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-green-500/25 bg-green-500/10 text-green-400">
-              <WhatsAppIcon />
-            </span>
+            <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-green-500/25 bg-green-500/10 text-green-400"><WhatsAppIcon /></span>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Campaña WhatsApp</p>
-              <p className="text-sm font-bold text-slate-100">{conWhatsapp.length} socios con número</p>
+              <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Enviar campaña</p>
+              <p className="text-sm font-bold text-slate-100">{cfg ? `${cfg.emoji} ${cfg.label}` : "Seleccionados"} · {conWA.length} socios</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <span className={["inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold",
-              waStatus === "connected" ? "border-brand-green/30 bg-brand-green/10 text-brand-green"
-              : waStatus === "qr" ? "border-amber-400/30 bg-amber-400/10 text-amber-400"
-              : "border-[#1e293b] bg-white/5 text-slate-400"].join(" ")}>
-              <span className={["h-1.5 w-1.5 rounded-full",
-                waStatus === "connected" ? "bg-brand-green" : waStatus === "qr" ? "bg-amber-400 animate-pulse" : "bg-slate-500"].join(" ")} />
-              {waStatus === "connected" ? "Conectado" : waStatus === "qr" ? "Escanear QR" : "Conectando…"}
+              waStatus === "connected" ? "border-brand-green/30 bg-brand-green/10 text-brand-green" : "border-amber-400/30 bg-amber-400/10 text-amber-400"].join(" ")}>
+              <span className={["h-1.5 w-1.5 rounded-full", waStatus === "connected" ? "bg-brand-green" : "bg-amber-400 animate-pulse"].join(" ")} />
+              {waStatus === "connected" ? "Conectado" : "Conectando…"}
             </span>
             <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-full border border-[#1e293b] bg-white/5 text-slate-400 hover:text-slate-100"><XIcon /></button>
           </div>
         </div>
-
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          {/* Panel QR si no está conectado */}
-          {waStatus !== "connected" && !iniciado && (
+          {waStatus !== "connected" && !iniciado && qrDataUrl && (
             <div className="rounded-2xl border border-amber-400/20 bg-amber-400/5 p-4 text-center space-y-3">
-              <p className="text-sm font-semibold text-amber-300">
-                {waStatus === "qr" ? "Escanea el QR con WhatsApp para conectar" : "Iniciando conexión WhatsApp…"}
-              </p>
-              {qrDataUrl ? (
-                <div className="flex justify-center">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={qrDataUrl} alt="QR WhatsApp" className="w-48 h-48 rounded-xl border border-[#1e293b]" />
-                </div>
-              ) : (
-                <div className="flex flex-col items-center gap-3 py-4">
-                  <div className="h-8 w-8 rounded-full border-2 border-amber-400/40 border-t-amber-400 animate-spin" />
-                  <p className="text-xs text-slate-500">Conectando con WhatsApp Web, espera unos segundos…</p>
-                </div>
-              )}
-              <p className="text-xs text-slate-500">Abre WhatsApp → Dispositivos vinculados → Vincular dispositivo</p>
+              <p className="text-sm font-semibold text-amber-300">Escanea el QR con WhatsApp</p>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={qrDataUrl} alt="QR" className="w-48 h-48 mx-auto rounded-xl border border-[#1e293b]" />
             </div>
           )}
-
           {!iniciado ? (
             <>
               <div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2 block">
-                  Mensaje — usa {"{nombre}"} para personalizar
-                </label>
-                <textarea
-                  value={mensaje}
-                  onChange={(e) => setMensaje(e.target.value)}
-                  rows={4}
-                  className="w-full rounded-2xl border border-[#1e293b] bg-[#0b1220] px-4 py-3 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-brand-green/50 resize-none"
-                />
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2 block">Mensaje — usa {"{nombre}"} para personalizar</label>
+                <textarea value={mensaje} onChange={(e) => setMensaje(e.target.value)} rows={4}
+                  className="w-full rounded-2xl border border-[#1e293b] bg-[#0b1220] px-4 py-3 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-brand-green/50 resize-none" />
               </div>
-              <div className="rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-3 space-y-1.5 max-h-40 overflow-y-auto">
-                <p className="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Destinatarios</p>
-                {conWhatsapp.map((s) => (
-                  <div key={s.id} className="flex items-center justify-between text-sm">
+              <div className="rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-3 max-h-40 overflow-y-auto space-y-1">
+                <p className="text-[10px] uppercase tracking-widest text-slate-500 mb-1">Destinatarios ({conWA.length})</p>
+                {conWA.map((s) => (
+                  <div key={s.id} className="flex items-center justify-between text-xs">
                     <span className="text-slate-300">{[s.nombre, s.apellido].filter(Boolean).join(" ")}</span>
-                    <span className="text-xs text-slate-500">📱 {s.whatsapp}</span>
+                    <span className="text-slate-500">📱 +{s.codigo_telefono}{s.whatsapp}</span>
                   </div>
                 ))}
-                {socios.filter((s) => !s.whatsapp).length > 0 && (
-                  <p className="text-xs text-slate-600 mt-1">{socios.filter((s) => !s.whatsapp).length} sin número serán omitidos.</p>
-                )}
               </div>
             </>
           ) : (
             <div className="space-y-2">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-sm font-semibold text-slate-300">Progreso</p>
-                <span className="text-xs text-slate-500">{okCount + errCount}/{conWhatsapp.length}</span>
+                <span className="text-xs text-slate-500">{okCount + errCount}/{conWA.length}</span>
               </div>
               {resultados.map((r) => (
                 <div key={r.id} className="flex items-center justify-between rounded-xl border border-[#1e293b] bg-white/5 px-3 py-2">
                   <span className="text-sm text-slate-300">{r.nombre}</span>
-                  {r.estado === "pending" ? (
-                    <span className="text-xs text-slate-500">{enviando ? "Enviando…" : "Pendiente"}</span>
-                  ) : r.estado === "ok" ? (
-                    <span className="flex items-center gap-1 text-xs text-brand-green"><CheckIcon /> Enviado</span>
-                  ) : (
-                    <span className="flex items-center gap-1 text-xs text-red-400"><XIcon /> Error</span>
-                  )}
+                  {r.estado === "pending" ? <span className="text-xs text-slate-500">Enviando…</span>
+                    : r.estado === "ok" ? <span className="flex items-center gap-1 text-xs text-brand-green"><CheckIcon /> Enviado</span>
+                    : <span className="flex items-center gap-1 text-xs text-red-400"><XIcon /> Error</span>}
                 </div>
               ))}
-              {!enviando && (
-                <div className="rounded-xl border border-[#1e293b] bg-white/5 px-4 py-3 text-sm text-center">
-                  <span className="text-brand-green font-semibold">{okCount} enviados</span>
-                  {errCount > 0 && <span className="text-red-400 font-semibold ml-3">{errCount} fallidos</span>}
-                </div>
-              )}
+              {!enviando && <div className="rounded-xl border border-[#1e293b] bg-white/5 px-4 py-3 text-sm text-center">
+                <span className="text-brand-green font-semibold">{okCount} enviados</span>
+                {errCount > 0 && <span className="text-red-400 font-semibold ml-3">{errCount} fallidos</span>}
+              </div>}
             </div>
           )}
         </div>
-
         <div className="flex items-center justify-between border-t border-[#1e293b] px-6 py-4 shrink-0">
-          <button onClick={onClose} className="rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:text-slate-100 transition-all">
+          <button onClick={onClose} className="rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:text-slate-100">
             {iniciado && !enviando ? "Cerrar" : "Cancelar"}
           </button>
           {!iniciado && (
-            <button
-              onClick={() => void enviarMensajes()}
-              disabled={enviando || conWhatsapp.length === 0 || waStatus !== "connected"}
-              className="flex items-center gap-2 rounded-2xl bg-green-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-green-500 disabled:opacity-50 transition-all">
-              <SendIcon /> Enviar a {conWhatsapp.length} socios
+            <button onClick={() => void enviar()} disabled={enviando || conWA.length === 0 || waStatus !== "connected"}
+              className="flex items-center gap-2 rounded-2xl bg-green-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-green-500 disabled:opacity-50">
+              <SendIcon /> Enviar a {conWA.length}
             </button>
           )}
         </div>
@@ -371,258 +238,192 @@ function ModalWhatsApp({ socios, templateInicial, onClose }: { socios: SocioChur
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function RetencionPage() {
-  const [socios, setSocios] = useState<SocioChurn[]>([]);
+  const searchParams = useSearchParams();
+  const paramSegmento = searchParams.get("segmento") as Segmento | null;
+
+  const [tab, setTab] = useState<TabRetencion>("riesgo");
   const [loading, setLoading] = useState(true);
+  const [socios, setSocios] = useState<SocioRiesgo[]>([]);
+  const [historial, setHistorial] = useState<EnvioHistorial[]>([]);
+  const [filtroSegmento, setFiltroSegmento] = useState<Segmento>(paramSegmento ?? "todos");
   const [filtroNivel, setFiltroNivel] = useState<RiesgoNivel | "todos">("todos");
-  const [filtroDias, setFiltroDias] = useState<7 | 15 | 30 | 60 | 999>(999);
   const [seleccionados, setSeleccionados] = useState<Set<number>>(new Set());
-  const [modalWA, setModalWA] = useState(false);
-  const [toast, setToast] = useState({ open: false, message: "", type: "ok" as "ok" | "error" });
+  const [modalEnvio, setModalEnvio] = useState(false);
 
-  // Tabs
-  const [tabPrincipal, setTabPrincipal] = useState<TabPrincipal>("prediccion");
-  const [segmentoActivo, setSegmentoActivo] = useState<Segmento["id"]>("sin_asistencia");
-  const [segmentosData, setSegmentosData] = useState<Record<Segmento["id"], SocioSegmento[]>>({
-    sin_asistencia: [], no_renovaron: [], racha_perdida: [], proximos_vencer: [],
-  });
-  const [loadingSegmentos, setLoadingSegmentos] = useState(false);
-  const [selSegmento, setSelSegmento] = useState<Set<number>>(new Set());
-  const [modalWASegmento, setModalWASegmento] = useState(false);
-  const [diasSinAsistencia, setDiasSinAsistencia] = useState(14);
+  // Métricas
+  const [tasaRetencion, setTasaRetencion] = useState(0);
+  const [churnRate, setChurnRate] = useState(0);
+  const [totalContactados, setTotalContactados] = useState(0);
 
-  function showToast(message: string, type: "ok" | "error" = "ok") {
-    setToast({ open: true, message, type });
-  }
-
-  async function cargar() {
+  const cargar = useCallback(async () => {
     setLoading(true);
     const hoy = todayStr();
+    const treintaDias = new Date(Date.now() - 30 * 86400000).toISOString();
+    const en7d = new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0];
 
-    const { data } = await supabase.rpc("churn_score_socios", { p_hoy: hoy }).select("*");
-
-    // Si no existe la RPC, hacemos la query directamente
-    const { data: raw } = await supabase
+    // Todos los socios activos con su suscripción
+    const { data: sociosRaw } = await supabase
       .from("socios")
-      .select(`
-        id, nombre, apellido, whatsapp, es_activo,
-        suscripciones!inner(fecha_inicio, fecha_fin, estado)
-      `)
-      .eq("es_activo", true)
-      .eq("suscripciones.estado", "ACTIVA");
+      .select("id, nombre, apellido, whatsapp, codigo_telefono, es_activo, suscrito")
+      .eq("es_activo", true);
 
-    if (!raw) { setLoading(false); return; }
+    // Suscripciones activas
+    const { data: subsActivas } = await supabase
+      .from("suscripciones")
+      .select("socio_id, fecha_fin, fecha_inicio")
+      .eq("estado", "ACTIVA");
 
-    // Para cada socio, obtener asistencias últimos 30 días
-    const treintaDiasAtras = new Date(Date.now() - 30 * 86400000).toISOString();
-    const { data: asistencias } = await supabase
+    // Asistencias últimos 30 días
+    const { data: asist30 } = await supabase
       .from("asistencias")
       .select("socio_id, fecha_entrada")
-      .gte("fecha_entrada", treintaDiasAtras);
+      .gte("fecha_entrada", treintaDias);
 
+    // Último contacto por socio
+    const { data: ultimosEnvios } = await supabase
+      .from("campanas_envios")
+      .select("socio_id, fecha_envio")
+      .order("fecha_envio", { ascending: false });
+
+    const ultimoContactoMap = new Map<number, string>();
+    for (const e of ultimosEnvios ?? []) {
+      if (!ultimoContactoMap.has(e.socio_id)) ultimoContactoMap.set(e.socio_id, e.fecha_envio);
+    }
+
+    // Mapas de asistencias
     const asisMap = new Map<number, { count: number; ultima: string | null }>();
-    for (const a of asistencias ?? []) {
+    for (const a of asist30 ?? []) {
       const prev = asisMap.get(a.socio_id) ?? { count: 0, ultima: null };
-      const esUltima = !prev.ultima || a.fecha_entrada > prev.ultima;
       asisMap.set(a.socio_id, {
         count: prev.count + 1,
-        ultima: esUltima ? a.fecha_entrada : prev.ultima,
+        ultima: !prev.ultima || a.fecha_entrada > prev.ultima ? a.fecha_entrada : prev.ultima,
       });
     }
 
-    const resultado: SocioChurn[] = (raw as unknown as {
-      id: number; nombre: string | null; apellido: string | null; whatsapp: string | null;
-      suscripciones: { fecha_inicio: string; fecha_fin: string }[];
-    }[]).map((s) => {
-      const sub = s.suscripciones?.[0];
-      const fechaFin = sub?.fecha_fin ?? null;
-      const diasParaVencer = fechaFin
-        ? Math.floor((new Date(fechaFin + "T12:00:00").getTime() - new Date(hoy + "T12:00:00").getTime()) / 86400000)
-        : null;
-      const asis = asisMap.get(s.id) ?? { count: 0, ultima: null };
-      const base = {
-        id: s.id, nombre: s.nombre, apellido: s.apellido, whatsapp: s.whatsapp,
-        fecha_fin: fechaFin, fecha_inicio: sub?.fecha_inicio ?? null,
-        dias_para_vencer: diasParaVencer,
-        asistencias_30d: asis.count,
-        ultima_asistencia: asis.ultima,
-      };
-      const { score, nivel, razones } = calcularScore(base);
-      return { ...base, score, nivel, razones };
-    });
+    // Mapa de suscripciones
+    const subMap = new Map<number, { fecha_fin: string; fecha_inicio: string }>();
+    for (const s of subsActivas ?? []) {
+      const prev = subMap.get(s.socio_id);
+      if (!prev || s.fecha_fin > prev.fecha_fin) subMap.set(s.socio_id, { fecha_fin: s.fecha_fin, fecha_inicio: s.fecha_inicio });
+    }
 
-    // Ordenar por score descendente
+    // Construir lista unificada
+    const resultado: SocioRiesgo[] = [];
+    for (const s of (sociosRaw ?? []) as { id: number; nombre: string | null; apellido: string | null; whatsapp: string | null; codigo_telefono: string | null; suscrito: boolean | null }[]) {
+      const sub = subMap.get(s.id);
+      const asis = asisMap.get(s.id) ?? { count: 0, ultima: null };
+      const diasVencer = sub ? Math.floor((new Date(sub.fecha_fin + "T12:00:00").getTime() - new Date(hoy + "T12:00:00").getTime()) / 86400000) : null;
+      const diasSinVisita = asis.ultima ? Math.floor((Date.now() - new Date(asis.ultima).getTime()) / 86400000) : null;
+
+      // Determinar segmento — prioridad: no renovó > próximo a vencer > racha perdida > baja asistencia
+      // Excluir socios nuevos (suscripción empezó hace menos de 7 días)
+      const diasDesdeInicio = sub ? Math.floor((new Date(hoy + "T12:00:00").getTime() - new Date(sub.fecha_inicio + "T12:00:00").getTime()) / 86400000) : null;
+      let segmento: Exclude<Segmento, "todos">;
+      let detalle: string;
+
+      if (!s.suscrito && !sub) {
+        segmento = "no_renovaron";
+        detalle = "Suscripción vencida sin renovar";
+      } else if (sub && diasVencer !== null && diasVencer <= 7 && diasVencer >= 0) {
+        segmento = "proximos_vencer";
+        detalle = `Vence en ${diasVencer} día(s)`;
+      } else if (diasDesdeInicio !== null && diasDesdeInicio < 7) {
+        continue; // socio nuevo, no evaluar aún
+      } else if (asis.count >= 3 && diasSinVisita !== null && diasSinVisita > 10) {
+        segmento = "racha_perdida";
+        detalle = `${asis.count} visitas en 30d · paró hace ${diasSinVisita} días`;
+      } else if (sub && asis.count <= 2) {
+        segmento = "sin_asistencia";
+        detalle = asis.count === 0
+          ? "Sin visitas en los últimos 30 días"
+          : `Solo ${asis.count} visita(s) en 30 días${diasSinVisita ? ` · última hace ${diasSinVisita}d` : ""}`;
+      } else {
+        continue;
+      }
+
+      const { score, nivel } = calcularScore(diasVencer, asis.count, diasSinVisita);
+      resultado.push({
+        id: s.id, nombre: s.nombre, apellido: s.apellido,
+        whatsapp: s.whatsapp, codigo_telefono: s.codigo_telefono,
+        score, nivel, segmento,
+        segmentoLabel: SEGMENTOS_CONFIG[segmento].label,
+        detalle,
+        ultimoContacto: ultimoContactoMap.get(s.id) ?? null,
+      });
+    }
+
     resultado.sort((a, b) => b.score - a.score);
     setSocios(resultado);
+
+    // Historial (solo mensajes de retención, excluir campañas de marketing)
+    const { data: hist } = await supabase
+      .from("campanas_envios")
+      .select("id, socio_id, segmento, mensaje, estado, fecha_envio, socios(nombre, apellido)")
+      .neq("segmento", "campana_marketing")
+      .order("fecha_envio", { ascending: false })
+      .limit(50);
+    setHistorial((hist ?? []).map((h) => {
+      const socioData = h.socios as unknown as { nombre: string | null; apellido: string | null } | null;
+      return {
+        id: h.id, segmento: h.segmento, mensaje: h.mensaje, estado: h.estado, fecha_envio: h.fecha_envio,
+        socio_nombre: [socioData?.nombre, socioData?.apellido].filter(Boolean).join(" "),
+      };
+    }));
+
+    // Métricas de retención
+    const { data: subsMesAnterior } = await supabase.from("suscripciones").select("socio_id, fecha_fin, fecha_inicio")
+      .gte("fecha_fin", new Date(Date.now() - 60 * 86400000).toISOString().split("T")[0])
+      .lte("fecha_fin", hoy);
+    const { data: todasSubsRet } = await supabase.from("suscripciones").select("socio_id, fecha_inicio");
+    let vencieron = 0, renovaron = 0;
+    for (const s of subsMesAnterior ?? []) {
+      vencieron++;
+      if ((todasSubsRet ?? []).some((o) => o.socio_id === s.socio_id && o.fecha_inicio > s.fecha_fin)) renovaron++;
+    }
+    const tasa = vencieron > 0 ? Math.round((renovaron / vencieron) * 100) : 100;
+    setTasaRetencion(tasa); setChurnRate(100 - tasa);
+
+    const { count: contactados } = await supabase.from("campanas_envios").select("*", { count: "exact", head: true })
+      .gte("fecha_envio", new Date(Date.now() - 30 * 86400000).toISOString());
+    setTotalContactados(contactados ?? 0);
+
     setLoading(false);
-    void data; // ignorar RPC si no existe
-  }
+  }, []);
 
-  useEffect(() => { void cargar(); }, []);
-
-  // Cargar segmentos cuando se cambia al tab de campañas
-  useEffect(() => {
-    if (tabPrincipal === "campanas") void cargarSegmentos();
-  }, [tabPrincipal, diasSinAsistencia]);
-
-  async function cargarSegmentos() {
-    setLoadingSegmentos(true);
-    const hoy = todayStr();
-    const hoyDate = new Date(hoy + "T12:00:00");
-    const corteAsistencia = new Date(hoyDate.getTime() - diasSinAsistencia * 86400000).toISOString();
-    const corteRacha = new Date(hoyDate.getTime() - 10 * 86400000).toISOString(); // 10 días sin venir
-    const corteRachaActiva = new Date(hoyDate.getTime() - 30 * 86400000).toISOString(); // venían en los últimos 30d
-
-    // 1. Sin asistencias recientes (activos con susc activa pero sin venir X días)
-    const { data: sinAsist } = await supabase
-      .from("socios")
-      .select("id, nombre, apellido, whatsapp, suscripciones!inner(fecha_fin, estado)")
-      .eq("es_activo", true)
-      .eq("suscripciones.estado", "ACTIVA")
-      .gte("suscripciones.fecha_fin", hoy);
-
-    const { data: asistRecientes } = await supabase
-      .from("asistencias")
-      .select("socio_id")
-      .gte("fecha_entrada", corteAsistencia);
-    const conAsistReciente = new Set((asistRecientes ?? []).map((a) => a.socio_id));
-
-    const sinAsistData: SocioSegmento[] = ((sinAsist ?? []) as unknown as {
-      id: number; nombre: string | null; apellido: string | null; whatsapp: string | null;
-      suscripciones: { fecha_fin: string }[];
-    }[])
-      .filter((s) => !conAsistReciente.has(s.id))
-      .map((s) => ({
-        id: s.id, nombre: s.nombre, apellido: s.apellido, whatsapp: s.whatsapp,
-        detalle: `Sin visitas hace +${diasSinAsistencia} días`,
-      }));
-
-    // 2. No renovaron (suscripción vencida, sin nueva suscripción activa)
-    const { data: vencidos } = await supabase
-      .from("socios")
-      .select("id, nombre, apellido, whatsapp")
-      .eq("es_activo", true)
-      .eq("suscrito", false);
-
-    const noRenovaronData: SocioSegmento[] = ((vencidos ?? []) as {
-      id: number; nombre: string | null; apellido: string | null; whatsapp: string | null;
-    }[]).map((s) => ({
-      id: s.id, nombre: s.nombre, apellido: s.apellido, whatsapp: s.whatsapp,
-      detalle: "Suscripción vencida sin renovar",
-    }));
-
-    // 3. Racha perdida: tenían asistencias en los últimos 30d pero llevan +10 días sin venir
-    const { data: asist30d } = await supabase
-      .from("asistencias")
-      .select("socio_id, fecha_entrada")
-      .gte("fecha_entrada", corteRachaActiva);
-
-    const rachaMap = new Map<number, { ultima: string; count: number }>();
-    for (const a of asist30d ?? []) {
-      const prev = rachaMap.get(a.socio_id);
-      if (!prev || a.fecha_entrada > prev.ultima) {
-        rachaMap.set(a.socio_id, { ultima: a.fecha_entrada, count: (prev?.count ?? 0) + 1 });
-      } else {
-        rachaMap.set(a.socio_id, { ...prev, count: prev.count + 1 });
-      }
-    }
-
-    const rachaPerdidaIds: number[] = [];
-    rachaMap.forEach((v, socioId) => {
-      const diasDesde = Math.floor((Date.now() - new Date(v.ultima).getTime()) / 86400000);
-      if (v.count >= 3 && diasDesde > 10) rachaPerdidaIds.push(socioId);
-    });
-
-    let rachaPerdidaData: SocioSegmento[] = [];
-    if (rachaPerdidaIds.length > 0) {
-      const { data: rachaSocios } = await supabase
-        .from("socios")
-        .select("id, nombre, apellido, whatsapp")
-        .in("id", rachaPerdidaIds)
-        .eq("es_activo", true);
-      rachaPerdidaData = ((rachaSocios ?? []) as {
-        id: number; nombre: string | null; apellido: string | null; whatsapp: string | null;
-      }[]).map((s) => {
-        const info = rachaMap.get(s.id)!;
-        const dias = Math.floor((Date.now() - new Date(info.ultima).getTime()) / 86400000);
-        return {
-          id: s.id, nombre: s.nombre, apellido: s.apellido, whatsapp: s.whatsapp,
-          detalle: `${info.count} visitas en 30d · paró hace ${dias} días`,
-        };
-      });
-    }
-
-    // 4. Próximos a vencer (7 días)
-    const en7dias = new Date(hoyDate.getTime() + 7 * 86400000).toISOString().split("T")[0];
-    const { data: proxVencer } = await supabase
-      .from("socios")
-      .select("id, nombre, apellido, whatsapp, suscripciones!inner(fecha_fin, estado)")
-      .eq("es_activo", true)
-      .eq("suscripciones.estado", "ACTIVA")
-      .gte("suscripciones.fecha_fin", hoy)
-      .lte("suscripciones.fecha_fin", en7dias);
-
-    const proxVencerData: SocioSegmento[] = ((proxVencer ?? []) as unknown as {
-      id: number; nombre: string | null; apellido: string | null; whatsapp: string | null;
-      suscripciones: { fecha_fin: string }[];
-    }[]).map((s) => ({
-      id: s.id, nombre: s.nombre, apellido: s.apellido, whatsapp: s.whatsapp,
-      detalle: `Vence el ${formatDate(s.suscripciones[0]?.fecha_fin ?? "")}`,
-    }));
-
-    setSegmentosData({
-      sin_asistencia: sinAsistData,
-      no_renovaron: noRenovaronData,
-      racha_perdida: rachaPerdidaData,
-      proximos_vencer: proxVencerData,
-    });
-    setLoadingSegmentos(false);
-  }
+  useEffect(() => { void cargar(); }, [cargar]);
+  useEffect(() => { if (paramSegmento) setFiltroSegmento(paramSegmento); }, [paramSegmento]);
 
   const filtrados = useMemo(() => {
     return socios.filter((s) => {
+      if (filtroSegmento !== "todos" && s.segmento !== filtroSegmento) return false;
       if (filtroNivel !== "todos" && s.nivel !== filtroNivel) return false;
-      if (filtroDias !== 999 && (s.dias_para_vencer === null || s.dias_para_vencer > filtroDias)) return false;
       return true;
     });
-  }, [socios, filtroNivel, filtroDias]);
+  }, [socios, filtroSegmento, filtroNivel]);
 
-  const stats = useMemo(() => ({
-    alto: socios.filter((s) => s.nivel === "ALTO").length,
-    medio: socios.filter((s) => s.nivel === "MEDIO").length,
-    bajo: socios.filter((s) => s.nivel === "BAJO").length,
-    sinAsistencias: socios.filter((s) => s.asistencias_30d === 0).length,
+  const segmentoCounts = useMemo(() => ({
+    todos: socios.length,
+    sin_asistencia: socios.filter((s) => s.segmento === "sin_asistencia").length,
+    no_renovaron: socios.filter((s) => s.segmento === "no_renovaron").length,
+    racha_perdida: socios.filter((s) => s.segmento === "racha_perdida").length,
+    proximos_vencer: socios.filter((s) => s.segmento === "proximos_vencer").length,
   }), [socios]);
 
   function toggleSel(id: number) {
-    setSeleccionados((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+    setSeleccionados((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
-
   function selAll() {
-    if (seleccionados.size === filtrados.length) {
-      setSeleccionados(new Set());
-    } else {
-      setSeleccionados(new Set(filtrados.map((s) => s.id)));
-    }
+    setSeleccionados(seleccionados.size === filtrados.length ? new Set() : new Set(filtrados.map((s) => s.id)));
   }
 
   const sociosParaEnviar = socios.filter((s) => seleccionados.has(s.id));
+  const segmentoEnvio = filtroSegmento !== "todos" ? filtroSegmento : (sociosParaEnviar[0]?.segmento ?? "todos");
 
   return (
     <div className="space-y-5">
-      <Toast open={toast.open} message={toast.message} type={toast.type} onClose={() => setToast((t) => ({ ...t, open: false }))} />
-
-      {modalWA && (
-        <ModalWhatsApp
-          socios={sociosParaEnviar}
-          onClose={() => {
-            setModalWA(false);
-            showToast("Campaña finalizada");
-          }}
-        />
+      {modalEnvio && (
+        <ModalEnvio socios={sociosParaEnviar} segmento={segmentoEnvio}
+          onClose={() => setModalEnvio(false)} onSent={() => void cargar()} />
       )}
 
       {/* Header */}
@@ -631,276 +432,111 @@ export default function RetencionPage() {
           <div>
             <div className="section-kicker">Operaciones</div>
             <h1 className="section-title">Retención</h1>
-            <p className="section-description">Predicción de churn y campañas de reactivación</p>
+            <p className="section-description">Identifica socios en riesgo y actúa para retenerlos</p>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => void cargar()}
-              className="flex items-center gap-2 rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:text-slate-100 transition-all">
-              <RefreshIcon /> Actualizar
-            </button>
+            <button onClick={() => void cargar()} className="flex items-center gap-2 rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:text-slate-100"><RefreshIcon /> Actualizar</button>
             {seleccionados.size > 0 && (
-              <button onClick={() => setModalWA(true)}
-                className="flex items-center gap-2 rounded-2xl bg-green-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-green-500 transition-all shadow-lg shadow-green-900/30">
-                <WhatsAppIcon /> Enviar WhatsApp ({seleccionados.size})
+              <button onClick={() => setModalEnvio(true)}
+                className="flex items-center gap-2 rounded-2xl bg-green-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-green-500 shadow-lg shadow-green-900/30">
+                <WhatsAppIcon /> Enviar ({seleccionados.size})
               </button>
             )}
           </div>
         </div>
       </div>
 
-      {/* Tab switcher */}
+      {/* Tabs */}
       <div className="flex gap-2">
         {([
-          { id: "prediccion", label: "🧠 Predicción de Churn" },
-          { id: "campanas", label: "📣 Campañas por Segmento" },
+          { id: "riesgo", label: "Panel de riesgo", count: socios.length },
+          { id: "historial", label: "Acciones realizadas", count: historial.length },
+          { id: "metricas", label: "Métricas", count: null },
         ] as const).map((t) => (
-          <button key={t.id} onClick={() => { setTabPrincipal(t.id); setSeleccionados(new Set()); setSelSegmento(new Set()); }}
+          <button key={t.id} onClick={() => setTab(t.id)}
             className={["rounded-2xl border px-5 py-2.5 text-sm font-bold transition-all",
-              tabPrincipal === t.id
-                ? "border-brand-green/40 bg-brand-green/10 text-brand-green"
-                : "border-[#1e293b] bg-white/5 text-slate-400 hover:text-slate-100"].join(" ")}>
-            {t.label}
+              tab === t.id ? "border-brand-green/40 bg-brand-green/10 text-brand-green" : "border-[#1e293b] bg-white/5 text-slate-400 hover:text-slate-100"].join(" ")}>
+            {t.label} {t.count !== null && <span className="ml-1 text-xs opacity-60">({t.count})</span>}
           </button>
         ))}
       </div>
 
-      {/* ── TAB: Predicción de Churn ── */}
-      {tabPrincipal === "prediccion" && (<>
+      {loading ? <div className="py-16 text-center text-sm text-slate-500">Analizando socios…</div> : (<>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          { label: "Alto riesgo", value: stats.alto, color: "text-red-400", icon: "🔴" },
-          { label: "Riesgo medio", value: stats.medio, color: "text-amber-400", icon: "🟡" },
-          { label: "Bajo riesgo", value: stats.bajo, color: "text-brand-green", icon: "🟢" },
-          { label: "Sin asistencias 30d", value: stats.sinAsistencias, color: "text-slate-400", icon: "👻" },
-        ].map((s) => (
-          <div key={s.label} className="rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-3">
-            <div className="text-[10px] uppercase tracking-widest text-slate-500">{s.label}</div>
-            <div className={`text-2xl font-bold mt-1 ${s.color}`}>{loading ? "…" : s.value}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Modelo IA info */}
-      <div className="rounded-2xl border border-brand-green/20 bg-brand-green/5 px-5 py-4 flex items-start gap-4">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-brand-green/25 bg-brand-green/10 text-brand-green mt-0.5">
-          <BrainIcon />
-        </span>
-        <div>
-          <p className="text-sm font-bold text-slate-100">Modelo de predicción de churn</p>
-          <p className="text-xs text-slate-400 mt-1">
-            Score calculado en base a 3 factores: <span className="text-slate-300">proximidad de vencimiento (40%)</span>,{" "}
-            <span className="text-slate-300">frecuencia de asistencias últimos 30 días (35%)</span> y{" "}
-            <span className="text-slate-300">días desde última visita (25%)</span>.
-            Score ≥65 = Alto riesgo · 35-64 = Medio · &lt;35 = Bajo.
-          </p>
-        </div>
-      </div>
-
-      {/* Filtros */}
-      <div className="flex flex-wrap gap-2 items-center">
-        <div className="flex gap-1.5">
-          {(["todos", "ALTO", "MEDIO", "BAJO"] as const).map((v) => (
-            <button key={v} onClick={() => setFiltroNivel(v)}
-              className={["rounded-full border px-3 py-1.5 text-xs font-semibold transition-all",
-                filtroNivel === v
-                  ? v === "ALTO" ? "border-red-500/50 bg-red-500/15 text-red-400"
-                    : v === "MEDIO" ? "border-amber-400/50 bg-amber-400/15 text-amber-400"
-                    : v === "BAJO" ? "border-brand-green/50 bg-brand-green/15 text-brand-green"
-                    : "border-brand-green/50 bg-brand-green/15 text-brand-green"
-                  : "border-[#1e293b] bg-white/5 text-slate-400 hover:text-slate-100"].join(" ")}>
-              {v === "todos" ? "Todos" : v === "ALTO" ? "🔴 Alto" : v === "MEDIO" ? "🟡 Medio" : "🟢 Bajo"}
-            </button>
-          ))}
-        </div>
-        <span className="w-px bg-[#1e293b] h-5" />
-        <div className="flex gap-1.5">
-          {([{ v: 7, l: "≤7 días" }, { v: 15, l: "≤15 días" }, { v: 30, l: "≤30 días" }, { v: 999, l: "Todos" }] as const).map(({ v, l }) => (
-            <button key={v} onClick={() => setFiltroDias(v)}
-              className={["rounded-full border px-3 py-1.5 text-xs font-semibold transition-all",
-                filtroDias === v ? "border-violet-500/50 bg-violet-500/15 text-violet-400" : "border-[#1e293b] bg-white/5 text-slate-400 hover:text-slate-100"].join(" ")}>
-              {l}
-            </button>
-          ))}
-        </div>
-        <span className="ml-auto text-xs text-slate-500">{filtrados.length} socios</span>
-      </div>
-
-      {/* Seleccionar todos */}
-      {filtrados.length > 0 && (
-        <div className="flex items-center gap-3">
-          <button onClick={selAll} className="text-xs text-slate-500 hover:text-slate-300 underline underline-offset-2">
-            {seleccionados.size === filtrados.length ? "Deseleccionar todos" : "Seleccionar todos"}
-          </button>
-          {seleccionados.size > 0 && (
-            <span className="text-xs text-slate-400">{seleccionados.size} seleccionado(s)</span>
-          )}
-        </div>
-      )}
-
-      {/* Lista */}
-      {loading ? (
-        <div className="py-16 text-center text-sm text-slate-500">Analizando socios…</div>
-      ) : filtrados.length === 0 ? (
-        <div className="rounded-2xl border border-[#1e293b] bg-white/5 py-16 text-center">
-          <p className="text-sm text-slate-500">No hay socios en este rango de riesgo.</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {filtrados.map((s) => {
-            const cfg = nivelConfig(s.nivel);
-            const sel = seleccionados.has(s.id);
-            return (
-              <div key={s.id}
-                onClick={() => toggleSel(s.id)}
-                className={["rounded-2xl border px-5 py-4 cursor-pointer transition-all",
-                  sel ? "border-brand-green/40 bg-brand-green/5" : `${cfg.border} bg-white/5 hover:bg-white/8`].join(" ")}>
-                <div className="flex items-start gap-4">
-                  {/* Checkbox */}
-                  <span className={["mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-all",
-                    sel ? "border-brand-green bg-brand-green/20 text-brand-green" : "border-[#1e293b] bg-[#020617]"].join(" ")}>
-                    {sel && <CheckIcon />}
-                  </span>
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-bold text-slate-100">
-                        {[s.nombre, s.apellido].filter(Boolean).join(" ")}
-                      </span>
-                      <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${cfg.bg} ${cfg.border} ${cfg.color}`}>
-                        <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
-                        {cfg.label}
-                      </span>
-                      {s.whatsapp && (
-                        <span className="text-[10px] text-green-400 flex items-center gap-0.5">
-                          <WhatsAppIcon /> {s.whatsapp}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Razones */}
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {s.razones.map((r, i) => (
-                        <span key={i} className="inline-flex items-center gap-1 rounded-full border border-[#1e293b] bg-white/5 px-2 py-0.5 text-[10px] text-slate-400">
-                          <AlertIcon /> {r}
-                        </span>
-                      ))}
-                    </div>
-
-                    {/* Fechas */}
-                    <div className="flex gap-4 mt-2 text-xs text-slate-500">
-                      {s.fecha_fin && <span>Vence: <span className="text-slate-300">{formatDate(s.fecha_fin)}</span></span>}
-                      {s.ultima_asistencia && <span>Última visita: <span className="text-slate-300">{formatDate(s.ultima_asistencia)}</span></span>}
-                      <span>Asistencias 30d: <span className="text-slate-300">{s.asistencias_30d}</span></span>
-                    </div>
-                  </div>
-
-                  {/* Score */}
-                  <div className="shrink-0 text-right">
-                    <div className={`text-2xl font-bold ${cfg.color}`}>{s.score}</div>
-                    <div className="text-[10px] text-slate-500 uppercase tracking-wide">score</div>
-                    <div className="mt-1.5 w-16 h-1.5 rounded-full bg-[#1e293b] overflow-hidden">
-                      <div className={`h-full rounded-full ${cfg.bar}`} style={{ width: `${s.score}%` }} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      </>)} {/* end tab prediccion */}
-
-      {/* ── TAB: Campañas por Segmento ── */}
-      {tabPrincipal === "campanas" && (
+      {/* ── TAB: Panel de riesgo ── */}
+      {tab === "riesgo" && (
         <div className="space-y-4">
-          {/* Segmento tabs */}
+          {/* Filtros por segmento */}
           <div className="flex flex-wrap gap-2">
-            {SEGMENTOS.map((seg) => {
-              const count = segmentosData[seg.id].length;
-              return (
-                <button key={seg.id} onClick={() => { setSegmentoActivo(seg.id); setSelSegmento(new Set()); }}
-                  className={["flex items-center gap-2 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-all",
-                    segmentoActivo === seg.id
-                      ? `${seg.border} ${seg.bg} ${seg.color}`
-                      : "border-[#1e293b] bg-white/5 text-slate-400 hover:text-slate-100"].join(" ")}>
-                  <span>{seg.emoji}</span>
-                  <span>{seg.label}</span>
-                  <span className={["rounded-full px-1.5 py-0.5 text-[10px] font-bold",
-                    segmentoActivo === seg.id ? "bg-white/20" : "bg-white/10 text-slate-500"].join(" ")}>
-                    {loadingSegmentos ? "…" : count}
-                  </span>
-                </button>
-              );
-            })}
+            <button onClick={() => { setFiltroSegmento("todos"); setSeleccionados(new Set()); }}
+              className={["rounded-2xl border px-4 py-2 text-xs font-bold transition-all",
+                filtroSegmento === "todos" ? "border-brand-green/40 bg-brand-green/10 text-brand-green" : "border-[#1e293b] bg-white/5 text-slate-400 hover:text-slate-100"].join(" ")}>
+              Todos ({segmentoCounts.todos})
+            </button>
+            {(Object.entries(SEGMENTOS_CONFIG) as [Exclude<Segmento, "todos">, typeof SEGMENTOS_CONFIG["sin_asistencia"]][]).map(([key, cfg]) => (
+              <button key={key} onClick={() => { setFiltroSegmento(key); setSeleccionados(new Set()); }}
+                className={["rounded-2xl border px-4 py-2 text-xs font-bold transition-all",
+                  filtroSegmento === key ? `${cfg.border} ${cfg.bg} ${cfg.color}` : "border-[#1e293b] bg-white/5 text-slate-400 hover:text-slate-100"].join(" ")}>
+                {cfg.emoji} {cfg.label} ({segmentoCounts[key]})
+              </button>
+            ))}
           </div>
 
-          {/* Config especial para sin_asistencia */}
-          {segmentoActivo === "sin_asistencia" && (
-            <div className="flex items-center gap-3 rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-3">
-              <span className="text-xs text-slate-400">Mostrar socios sin asistir hace más de</span>
-              <div className="flex gap-1.5">
-                {[7, 14, 21, 30].map((d) => (
-                  <button key={d} onClick={() => setDiasSinAsistencia(d)}
-                    className={["rounded-full border px-3 py-1 text-xs font-bold transition-all",
-                      diasSinAsistencia === d ? "border-slate-400/50 bg-slate-400/15 text-slate-200" : "border-[#1e293b] bg-white/5 text-slate-500 hover:text-slate-300"].join(" ")}>
-                    {d}d
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Acciones del segmento */}
+          {/* Filtro nivel + seleccionar */}
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <button onClick={() => {
-                const lista = segmentosData[segmentoActivo];
-                if (selSegmento.size === lista.length) setSelSegmento(new Set());
-                else setSelSegmento(new Set(lista.map((s) => s.id)));
-              }} className="text-xs text-slate-500 hover:text-slate-300 underline underline-offset-2">
-                {selSegmento.size === segmentosData[segmentoActivo].length && segmentosData[segmentoActivo].length > 0
-                  ? "Deseleccionar todos" : "Seleccionar todos"}
-              </button>
-              {selSegmento.size > 0 && <span className="text-xs text-slate-400">{selSegmento.size} seleccionado(s)</span>}
+            <div className="flex gap-1.5">
+              {(["todos", "ALTO", "MEDIO", "BAJO"] as const).map((v) => (
+                <button key={v} onClick={() => setFiltroNivel(v)}
+                  className={["rounded-full border px-3 py-1 text-[10px] font-bold transition-all",
+                    filtroNivel === v ? "border-brand-green/40 bg-brand-green/10 text-brand-green" : "border-[#1e293b] bg-white/5 text-slate-500"].join(" ")}>
+                  {v === "todos" ? "Todos" : v}
+                </button>
+              ))}
             </div>
-            {selSegmento.size > 0 && (
-              <button onClick={() => setModalWASegmento(true)}
-                className="flex items-center gap-2 rounded-2xl bg-green-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-green-500 transition-all shadow-lg shadow-green-900/30">
-                <WhatsAppIcon /> Enviar WhatsApp ({selSegmento.size})
+            <div className="flex items-center gap-3">
+              <button onClick={selAll} className="text-xs text-slate-500 hover:text-slate-300 underline underline-offset-2">
+                {seleccionados.size === filtrados.length && filtrados.length > 0 ? "Deseleccionar" : "Seleccionar todos"}
               </button>
-            )}
+              <span className="text-xs text-slate-500">{filtrados.length} socios</span>
+            </div>
           </div>
 
-          {/* Lista del segmento */}
-          {loadingSegmentos ? (
-            <div className="py-12 text-center text-sm text-slate-500">Cargando segmento…</div>
-          ) : segmentosData[segmentoActivo].length === 0 ? (
-            <div className="rounded-2xl border border-[#1e293b] bg-white/5 py-12 text-center">
-              <p className="text-2xl mb-2">{SEGMENTOS.find((s) => s.id === segmentoActivo)?.emoji}</p>
-              <p className="text-sm text-slate-500">No hay socios en este segmento.</p>
+          {/* Lista */}
+          {filtrados.length === 0 ? (
+            <div className="rounded-2xl border border-brand-green/20 bg-brand-green/5 px-5 py-12 text-center">
+              <p className="text-brand-green text-lg mb-1">✓ Sin socios en riesgo</p>
+              <p className="text-xs text-slate-400">No hay socios que requieran atención en este segmento.</p>
             </div>
           ) : (
             <div className="space-y-2">
-              {segmentosData[segmentoActivo].map((s) => {
-                const seg = SEGMENTOS.find((sg) => sg.id === segmentoActivo)!;
-                const sel = selSegmento.has(s.id);
+              {filtrados.map((s) => {
+                const cfg = SEGMENTOS_CONFIG[s.segmento];
+                const sel = seleccionados.has(s.id);
                 return (
-                  <div key={s.id} onClick={() => setSelSegmento((prev) => { const n = new Set(prev); n.has(s.id) ? n.delete(s.id) : n.add(s.id); return n; })}
-                    className={["rounded-2xl border px-5 py-4 cursor-pointer transition-all flex items-center gap-4",
-                      sel ? "border-brand-green/40 bg-brand-green/5" : `${seg.border} bg-white/5 hover:bg-white/8`].join(" ")}>
-                    <span className={["flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-all",
-                      sel ? "border-brand-green bg-brand-green/20 text-brand-green" : "border-[#1e293b] bg-[#020617]"].join(" ")}>
-                      {sel && <CheckIcon />}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-bold text-slate-100">{[s.nombre, s.apellido].filter(Boolean).join(" ")}</span>
-                        {s.whatsapp && <span className="text-[10px] text-green-400 flex items-center gap-0.5"><WhatsAppIcon /> {s.whatsapp}</span>}
+                  <div key={s.id} onClick={() => toggleSel(s.id)}
+                    className={["rounded-2xl border px-5 py-4 cursor-pointer transition-all",
+                      sel ? "border-brand-green/40 bg-brand-green/5" : "border-[#1e293b] bg-white/5 hover:bg-white/8"].join(" ")}>
+                    <div className="flex items-start gap-4">
+                      <span className={["mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-all",
+                        sel ? "border-brand-green bg-brand-green/20 text-brand-green" : "border-[#1e293b] bg-[#020617]"].join(" ")}>
+                        {sel && <CheckIcon />}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-bold text-slate-100">{[s.nombre, s.apellido].filter(Boolean).join(" ")}</span>
+                          {nivelBadge(s.nivel)}
+                          <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${cfg.border} ${cfg.bg} ${cfg.color}`}>
+                            {cfg.emoji} {cfg.label}
+                          </span>
+                          {s.whatsapp && <span className="text-[10px] text-green-400 flex items-center gap-0.5"><WhatsAppIcon /> +{s.codigo_telefono}{s.whatsapp}</span>}
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">{s.detalle}</p>
+                        {s.ultimoContacto && <p className="text-[10px] text-slate-600 mt-0.5">Último contacto: {formatDateTime(s.ultimoContacto)}</p>}
                       </div>
-                      <p className={`text-xs mt-0.5 ${seg.color}`}>{s.detalle}</p>
+                      <div className="shrink-0 text-right">
+                        <div className={`text-xl font-bold ${s.nivel === "ALTO" ? "text-red-400" : s.nivel === "MEDIO" ? "text-amber-400" : "text-brand-green"}`}>{s.score}</div>
+                        <div className="text-[10px] text-slate-500">score</div>
+                      </div>
                     </div>
                   </div>
                 );
@@ -910,16 +546,166 @@ export default function RetencionPage() {
         </div>
       )}
 
-      {/* Modal WhatsApp para segmentos */}
-      {modalWASegmento && (
-        <ModalWhatsApp
-          socios={segmentosData[segmentoActivo]
-            .filter((s) => selSegmento.has(s.id))
-            .map((s) => ({ ...s, fecha_fin: null, fecha_inicio: null, dias_para_vencer: null, asistencias_30d: 0, ultima_asistencia: null, score: 0, nivel: "MEDIO" as RiesgoNivel, razones: [] }))}
-          templateInicial={SEGMENTOS.find((s) => s.id === segmentoActivo)?.templateDefault}
-          onClose={() => { setModalWASegmento(false); showToast("Campaña finalizada"); }}
-        />
+      {/* ── TAB: Historial ── */}
+      {tab === "historial" && (
+        <div className="space-y-3">
+          {historial.length === 0 ? (
+            <div className="rounded-2xl border border-[#1e293b] bg-white/5 py-12 text-center">
+              <p className="text-sm text-slate-500">No hay campañas enviadas aún.</p>
+            </div>
+          ) : historial.map((h) => (
+            <div key={h.id} className="rounded-2xl border border-[#1e293b] bg-white/5 px-5 py-3 flex items-center gap-4">
+              <span className="text-lg">{SEGMENTOS_CONFIG[h.segmento as keyof typeof SEGMENTOS_CONFIG]?.emoji ?? "📨"}</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-slate-100">{h.socio_nombre}</span>
+                  <span className="text-[10px] text-slate-500">{SEGMENTOS_CONFIG[h.segmento as keyof typeof SEGMENTOS_CONFIG]?.label ?? h.segmento}</span>
+                </div>
+                <p className="text-xs text-slate-400 truncate max-w-md">{h.mensaje}</p>
+              </div>
+              <div className="text-right shrink-0">
+                <span className="inline-flex items-center gap-1 text-xs text-brand-green"><CheckIcon /> {h.estado}</span>
+                <p className="text-[10px] text-slate-500">{formatDateTime(h.fecha_envio)}</p>
+              </div>
+            </div>
+          ))}
+        </div>
       )}
+
+      {/* ── TAB: Métricas ── */}
+      {tab === "metricas" && (
+        <div className="space-y-5">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-3">
+              <div className="text-[10px] uppercase tracking-widest text-slate-500">Tasa retención</div>
+              <div className={`text-2xl font-bold mt-1 ${tasaRetencion >= 70 ? "text-brand-green" : "text-red-400"}`}>{tasaRetencion}%</div>
+              <div className="text-xs text-slate-500">últimos 60 días</div>
+            </div>
+            <div className="rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-3">
+              <div className="text-[10px] uppercase tracking-widest text-slate-500">Churn rate</div>
+              <div className={`text-2xl font-bold mt-1 ${churnRate <= 30 ? "text-brand-green" : "text-red-400"}`}>{churnRate}%</div>
+              <div className="text-xs text-slate-500">no renovaron</div>
+            </div>
+            <div className="rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-3">
+              <div className="text-[10px] uppercase tracking-widest text-slate-500">En riesgo</div>
+              <div className="text-2xl font-bold mt-1 text-amber-400">{socios.filter((s) => s.nivel === "ALTO").length}</div>
+              <div className="text-xs text-slate-500">score ≥65</div>
+            </div>
+            <div className="rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-3">
+              <div className="text-[10px] uppercase tracking-widest text-slate-500">Contactados 30d</div>
+              <div className="text-2xl font-bold mt-1 text-sky-400">{totalContactados}</div>
+              <div className="text-xs text-slate-500">mensajes enviados</div>
+            </div>
+          </div>
+
+          {/* Distribución por segmento */}
+          <div className="rounded-2xl border border-[#1e293b] bg-white/5 p-5">
+            <p className="text-xs font-semibold uppercase tracking-widest text-slate-500 mb-4">Distribución por segmento</p>
+            <div className="space-y-3">
+              {(Object.entries(SEGMENTOS_CONFIG) as [Exclude<Segmento, "todos">, typeof SEGMENTOS_CONFIG["sin_asistencia"]][]).map(([key, cfg]) => {
+                const count = segmentoCounts[key];
+                const pct = socios.length > 0 ? Math.round((count / socios.length) * 100) : 0;
+                return (
+                  <div key={key} className="flex items-center gap-3">
+                    <span className="text-lg w-6">{cfg.emoji}</span>
+                    <span className="text-xs text-slate-300 w-32">{cfg.label}</span>
+                    <div className="flex-1 h-6 rounded-full bg-[#1e293b] overflow-hidden">
+                      <div className={`h-full rounded-full transition-all ${key === "no_renovaron" ? "bg-red-500/50" : key === "racha_perdida" ? "bg-amber-400/50" : key === "proximos_vencer" ? "bg-violet-500/50" : "bg-slate-400/50"}`}
+                        style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="text-xs font-bold text-slate-100 w-16 text-right">{count} ({pct}%)</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ═══ MODELO DE PREDICCIÓN DE CHURN ═══ */}
+          <div className="rounded-2xl border border-brand-green/20 bg-brand-green/5 p-5 space-y-5">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-brand-green/25 bg-brand-green/10 text-brand-green">
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 4.44-1.66Z" /><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-4.44-1.66Z" /></svg>
+              </span>
+              <div>
+                <p className="text-sm font-bold text-slate-100">Modelo de predicción de churn</p>
+                <p className="text-xs text-slate-400">Scoring ponderado con 3 variables para predecir probabilidad de abandono</p>
+              </div>
+            </div>
+
+            {/* Factores del modelo */}
+            <div className="space-y-3">
+              <p className="text-[10px] uppercase tracking-widest text-slate-500">Factores y pesos del modelo</p>
+              {[
+                { factor: "Proximidad de vencimiento", peso: 40, desc: "Cuántos días faltan para que venza la suscripción. Vencida = máx. puntos.", color: "bg-red-500" },
+                { factor: "Frecuencia de asistencia (30d)", peso: 35, desc: "Cantidad de visitas en los últimos 30 días. 0 visitas = máx. puntos.", color: "bg-amber-400" },
+                { factor: "Días desde última visita", peso: 25, desc: "Cuánto tiempo pasó desde la última vez que vino. +20 días = máx. puntos.", color: "bg-violet-500" },
+              ].map((f) => (
+                <div key={f.factor} className="rounded-xl border border-[#1e293b] bg-[#020617]/50 px-4 py-3">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-semibold text-slate-200">{f.factor}</span>
+                    <span className="text-xs font-bold text-brand-green">{f.peso} pts máx.</span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-[#1e293b] overflow-hidden mb-1.5">
+                    <div className={`h-full rounded-full ${f.color}`} style={{ width: `${f.peso}%` }} />
+                  </div>
+                  <p className="text-[10px] text-slate-500">{f.desc}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Clasificación */}
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Clasificación de riesgo</p>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-center">
+                  <div className="text-lg font-bold text-red-400">≥65</div>
+                  <div className="text-[10px] text-red-400 font-semibold">ALTO RIESGO</div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">{socios.filter((s) => s.nivel === "ALTO").length} socios</div>
+                </div>
+                <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-center">
+                  <div className="text-lg font-bold text-amber-400">35-64</div>
+                  <div className="text-[10px] text-amber-400 font-semibold">RIESGO MEDIO</div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">{socios.filter((s) => s.nivel === "MEDIO").length} socios</div>
+                </div>
+                <div className="rounded-xl border border-brand-green/30 bg-brand-green/10 px-3 py-2 text-center">
+                  <div className="text-lg font-bold text-brand-green">&lt;35</div>
+                  <div className="text-[10px] text-brand-green font-semibold">BAJO RIESGO</div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">{socios.filter((s) => s.nivel === "BAJO").length} socios</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Ejemplo en vivo */}
+            {socios.length > 0 && (() => {
+              const ejemplo = socios[0]; // socio con mayor score
+              const cfg = SEGMENTOS_CONFIG[ejemplo.segmento];
+              return (
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Ejemplo en vivo — socio con mayor riesgo</p>
+                  <div className="rounded-xl border border-[#1e293b] bg-[#020617]/50 px-4 py-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-slate-100">{[ejemplo.nombre, ejemplo.apellido].filter(Boolean).join(" ")}</span>
+                        {nivelBadge(ejemplo.nivel)}
+                        <span className={`text-[10px] ${cfg.color}`}>{cfg.emoji} {cfg.label}</span>
+                      </div>
+                      <span className="text-2xl font-bold text-red-400">{ejemplo.score}</span>
+                    </div>
+                    <p className="text-xs text-slate-400">{ejemplo.detalle}</p>
+                    <div className="h-3 w-full rounded-full bg-[#1e293b] overflow-hidden">
+                      <div className={`h-full rounded-full transition-all ${ejemplo.nivel === "ALTO" ? "bg-red-500" : ejemplo.nivel === "MEDIO" ? "bg-amber-400" : "bg-brand-green"}`}
+                        style={{ width: `${ejemplo.score}%` }} />
+                    </div>
+                    <p className="text-[10px] text-slate-600">Score {ejemplo.score}/100 → El modelo recomienda contactar a este socio de forma urgente.</p>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      </>)}
     </div>
   );
 }
