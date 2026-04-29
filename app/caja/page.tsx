@@ -270,7 +270,7 @@ export default function CajaPage() {
           <h2 className="text-sm font-bold text-slate-100">Historial de cierres</h2>
           <div className="flex items-center gap-2">
             {/* Filtros período */}
-            <div className="flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1">
+            <div className="flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1 overflow-x-auto flex-nowrap">
               {([["mes", "Este mes"], ["3meses", "3 meses"], ["todo", "Todo"]] as const).map(([v, l]) => (
                 <button key={v} onClick={() => setFilterPeriod(v)}
                   className={["rounded-xl px-3 py-1.5 text-xs font-semibold transition-all", filterPeriod === v ? "bg-brand-green/15 text-brand-green border border-brand-green/30" : "text-slate-400 hover:text-slate-200"].join(" ")}>
@@ -286,7 +286,7 @@ export default function CajaPage() {
         </div>
 
         {/* Totales período */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {[
             { label: "Total BOB", value: `Bs ${fmtMoney(totalesPeriodo.bob)}`, color: "text-brand-green" },
             { label: "Total USD", value: `$ ${fmtMoney(totalesPeriodo.usd)}`, color: "text-sky-400" },
@@ -301,6 +301,7 @@ export default function CajaPage() {
 
         {/* Tabla historial */}
         <div className="rounded-2xl border border-[#1e293b] overflow-hidden">
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#1e293b] bg-white/5">
@@ -327,6 +328,7 @@ export default function CajaPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
 

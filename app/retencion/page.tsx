@@ -447,7 +447,7 @@ export default function RetencionPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 overflow-x-auto flex-nowrap">
         {([
           { id: "riesgo", label: "Panel de riesgo", count: socios.length },
           { id: "historial", label: "Acciones realizadas", count: historial.length },
@@ -656,7 +656,7 @@ export default function RetencionPage() {
             {/* Clasificación */}
             <div>
               <p className="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Clasificación de riesgo</p>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-center">
                   <div className="text-lg font-bold text-red-400">≥65</div>
                   <div className="text-[10px] text-red-400 font-semibold">ALTO RIESGO</div>

@@ -1,0 +1,24 @@
+{
+  "name": "Body Xtreme Gym OS",
+  "short_name": "Gym OS",
+  "description": "Sistema de Inteligencia de Negocios para Gimnasios",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#76CB3E",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

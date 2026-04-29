@@ -19,6 +19,8 @@ export type ReporteData = {
   churnRate: number;
   totalSocios: number;
   totalSuscritos: number;
+  arpu: number;
+  ltv: number;
   // Ingresos por mes
   ingresosMensuales: { mes: string; bob: number; count: number }[];
   // Retención por mes
@@ -29,6 +31,16 @@ export type ReporteData = {
   insights: { titulo: string; descripcion: string; prioridad: string }[];
   // Pronóstico
   pronostico: { mes: string; regresion: number; wma: number | null; holt: number | null }[];
+  // Cohortes
+  cohortes: { mes: string; cohorteSize: number; retention: number[] }[];
+  // Demografía
+  demografiaGenero: { genero: string; ingresos: number }[];
+  demografiaEdad: { rango: string; asistenciaPromedio: number }[];
+  // Frecuencia
+  frecuenciaAsistencia: { frecuencia: string; count: number }[];
+  correlacionRenovacion: number;
+  // Ticket por método
+  ticketPorMetodo: { metodo: string; promedio: number; count: number }[];
 };
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -97,6 +109,16 @@ function ReporteDocument({ data }: { data: ReporteData }) {
           <View style={S.kpiBox}>
             <Text style={S.kpiLabel}>Pagos del mes</Text>
             <Text style={S.kpiValue}>{data.pagosCount}</Text>
+          </View>
+          <View style={S.kpiBox}>
+            <Text style={S.kpiLabel}>ARPU</Text>
+            <Text style={S.kpiValue}>{fmtMoney(data.arpu)}</Text>
+            <Text style={S.kpiSub}>Ingreso por socio/mes</Text>
+          </View>
+          <View style={S.kpiBox}>
+            <Text style={S.kpiLabel}>LTV Estimado</Text>
+            <Text style={S.kpiValue}>{fmtMoney(data.ltv)}</Text>
+            <Text style={S.kpiSub}>Valor de vida del cliente</Text>
           </View>
         </View>
 
@@ -191,6 +213,109 @@ function ReporteDocument({ data }: { data: ReporteData }) {
         {/* Footer */}
         <View style={S.footer}>
           <Text style={S.footerText}>Generado por Gym OS — Sistema de Inteligencia de Negocios</Text>
+          <Text style={S.footerText}>{data.fechaGeneracion}</Text>
+        </View>
+      </Page>
+
+      {/* ═══ PÁGINA 2: Análisis Avanzado ═══ */}
+      <Page size="A4" style={S.page}>
+        <View style={S.header}>
+          <Text style={S.title}>{data.gymNombre} — Análisis Avanzado</Text>
+          <Text style={S.subtitle}>Cohortes, Segmentación y Frecuencia · {data.fechaGeneracion}</Text>
+        </View>
+
+        {/* Cohortes */}
+        {data.cohortes.length > 0 && (
+          <>
+            <Text style={S.sectionTitle}>Análisis de Cohortes — Retención por Mes de Inscripción</Text>
+            <View style={S.tableHeader}>
+              <Text style={[S.thCell, { width: "16%" }]}>Cohorte</Text>
+              <Text style={[S.thCell, { width: "10%", textAlign: "center" }]}>Tamaño</Text>
+              <Text style={[S.thCell, { width: "12%", textAlign: "center" }]}>Mes 0</Text>
+              <Text style={[S.thCell, { width: "12%", textAlign: "center" }]}>Mes 1</Text>
+              <Text style={[S.thCell, { width: "12%", textAlign: "center" }]}>Mes 2</Text>
+              <Text style={[S.thCell, { width: "12%", textAlign: "center" }]}>Mes 3</Text>
+              <Text style={[S.thCell, { width: "12%", textAlign: "center" }]}>Mes 4</Text>
+              <Text style={[S.thCell, { width: "12%", textAlign: "center" }]}>Mes 5</Text>
+            </View>
+            {data.cohortes.map((c, i) => (
+              <View key={i} style={S.tableRow}>
+                <Text style={[S.tdBold, { width: "16%" }]}>{c.mes}</Text>
+                <Text style={[S.tdCell, { width: "10%", textAlign: "center" }]}>{c.cohorteSize}</Text>
+                {Array.from({ length: 6 }).map((_, j) => (
+                  <Text key={j} style={[
+                    c.retention[j] !== undefined ? (c.retention[j] >= 50 ? S.green : S.red) : {},
+                    S.tdBold, { width: "12%", textAlign: "center" },
+                  ]}>
+                    {c.retention[j] !== undefined ? `${c.retention[j]}%` : "—"}
+                  </Text>
+                ))}
+              </View>
+            ))}
+          </>
+        )}
+
+        {/* Segmentación demográfica */}
+        <Text style={S.sectionTitle}>Segmentación Demográfica</Text>
+        <View style={{ flexDirection: "row", gap: 20 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={[S.thCell, { marginBottom: 4 }]}>Ingresos por Género</Text>
+            {data.demografiaGenero.map((d, i) => (
+              <View key={i} style={S.row}>
+                <Text style={S.tdCell}>{d.genero}</Text>
+                <Text style={S.tdBold}>{fmtMoney(d.ingresos)}</Text>
+              </View>
+            ))}
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[S.thCell, { marginBottom: 4 }]}>Asistencia Promedio por Edad</Text>
+            {data.demografiaEdad.map((d, i) => (
+              <View key={i} style={S.row}>
+                <Text style={S.tdCell}>{d.rango} años</Text>
+                <Text style={S.tdBold}>{d.asistenciaPromedio} visitas/mes</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {/* Frecuencia de asistencia */}
+        <Text style={S.sectionTitle}>Frecuencia de Asistencia Semanal</Text>
+        {data.frecuenciaAsistencia.map((f, i) => (
+          <View key={i} style={S.row}>
+            <Text style={S.tdCell}>{f.frecuencia}</Text>
+            <Text style={S.tdBold}>{f.count} socios</Text>
+          </View>
+        ))}
+        {data.correlacionRenovacion !== 0 && (
+          <View style={{ marginTop: 6, padding: 8, borderWidth: 1, borderColor: "#86efac", borderRadius: 6, backgroundColor: "#f0fdf4" }}>
+            <Text style={[S.insightTitle, S.green]}>
+              Los socios que asisten 3+ veces/semana tienen {data.correlacionRenovacion}% más probabilidad de renovar
+            </Text>
+          </View>
+        )}
+
+        {/* Ticket por método de pago */}
+        {data.ticketPorMetodo.length > 0 && (
+          <>
+            <Text style={S.sectionTitle}>Ticket Promedio por Método de Pago</Text>
+            <View style={S.tableHeader}>
+              <Text style={[S.thCell, { width: "40%" }]}>Método</Text>
+              <Text style={[S.thCell, { width: "30%", textAlign: "right" }]}>Promedio</Text>
+              <Text style={[S.thCell, { width: "30%", textAlign: "right" }]}>Transacciones</Text>
+            </View>
+            {data.ticketPorMetodo.map((t, i) => (
+              <View key={i} style={S.tableRow}>
+                <Text style={[S.tdCell, { width: "40%" }]}>{t.metodo}</Text>
+                <Text style={[S.tdBold, { width: "30%", textAlign: "right" }]}>{fmtMoney(t.promedio)}</Text>
+                <Text style={[S.tdCell, { width: "30%", textAlign: "right" }]}>{t.count}</Text>
+              </View>
+            ))}
+          </>
+        )}
+
+        {/* Footer page 2 */}
+        <View style={S.footer}>
+          <Text style={S.footerText}>Generado por Gym OS — Análisis Avanzado BI</Text>
           <Text style={S.footerText}>{data.fechaGeneracion}</Text>
         </View>
       </Page>

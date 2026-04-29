@@ -705,7 +705,7 @@ export default function AnalyticsPage() {
           </div>
           <div className="flex items-center gap-2">
             <SucursalSelector value={selectedSucursal} onChange={setSelectedSucursal} allowAll={true} />
-            <div className="flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1">
+            <div className="flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1 overflow-x-auto flex-nowrap">
               {(["6m", "12m", "todo"] as Periodo[]).map((p) => (
                 <button key={p} onClick={() => setPeriodo(p)}
                   className={["rounded-xl px-3 py-1.5 text-xs font-semibold transition-all",
@@ -729,11 +729,19 @@ export default function AnalyticsPage() {
                 churnRate: 100 - (ultRet?.tasa ?? 0),
                 totalSocios,
                 totalSuscritos,
+                arpu,
+                ltv,
                 ingresosMensuales: ingresosMes.map((m) => ({ mes: mesLabel(m.mes), bob: m.bob, count: m.count })),
                 retencionMensual: retencionMes.map((m) => ({ mes: mesLabel(m.mes), tasa: m.tasa, vencieron: m.vencieron, renovaron: m.renovaron })),
                 planes: planDist.map((p) => ({ nombre: p.name, cantidad: p.value })),
                 insights: insights.map((i) => ({ titulo: i.titulo, descripcion: i.descripcion, prioridad: i.prioridad })),
                 pronostico: pronostico.filter((p) => p.real === null).map((p) => ({ mes: p.mes, regresion: p.regresion, wma: p.wma, holt: p.holt })),
+                cohortes: cohortData,
+                demografiaGenero,
+                demografiaEdad,
+                frecuenciaAsistencia,
+                correlacionRenovacion,
+                ticketPorMetodo,
               };
               void generarReporteBI(reporteData);
             }}
@@ -1294,6 +1302,7 @@ export default function AnalyticsPage() {
                 <div className="border-b border-[#1e293b] px-5 py-3">
                   <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Ranking de sucursales</p>
                 </div>
+                <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-[#1e293b] bg-white/5">
@@ -1322,6 +1331,7 @@ export default function AnalyticsPage() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             </div>
           )}

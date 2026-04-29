@@ -735,7 +735,7 @@ export default function SociosPage() {
             className="w-full rounded-full border border-[#1e293b] bg-[#0b1220] py-3 pl-11 pr-4 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-brand-green/50" />
         </div>
         {/* Filtro estado */}
-        <div className="flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1">
+        <div className="flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1 overflow-x-auto flex-nowrap">
           {(["todos", "activo", "inactivo"] as FilterEstado[]).map((f) => (
             <button key={f} onClick={() => setFilterEstado(f)}
               className={["rounded-xl px-3 py-1.5 text-xs font-semibold transition-all capitalize", filterEstado === f ? "bg-brand-green/15 text-brand-green border border-brand-green/30" : "text-slate-400 hover:text-slate-200"].join(" ")}>
@@ -744,7 +744,7 @@ export default function SociosPage() {
           ))}
         </div>
         {/* Filtro suscripción */}
-        <div className="flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1">
+        <div className="flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1 overflow-x-auto flex-nowrap">
           {(["todos", "suscrito", "no_suscrito"] as FilterSub[]).map((f) => (
             <button key={f} onClick={() => setFilterSub(f)}
               className={["rounded-xl px-3 py-1.5 text-xs font-semibold transition-all", filterSub === f ? "bg-sky-400/15 text-sky-400 border border-sky-400/30" : "text-slate-400 hover:text-slate-200"].join(" ")}>

@@ -245,7 +245,7 @@ export default function RecepcionPage() {
         </div>
 
         {/* Tabs */}
-        <div className="mt-5 flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1 w-fit">
+        <div className="mt-5 flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1 w-fit overflow-x-auto flex-nowrap">
           {(["entrada", "salida"] as Tab[]).map((t) => (
             <button
               key={t}

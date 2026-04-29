@@ -338,7 +338,7 @@ export default function DashboardPage() {
 
       {/* Tabs + Sucursal selector */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1 w-fit">
+        <div className="flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1 w-fit overflow-x-auto flex-nowrap">
           {(["operativo", "financiero"] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)}
               className={["rounded-xl px-6 py-2 text-sm font-semibold transition-all", tab === t ? "bg-brand-green/15 text-brand-green border border-brand-green/30" : "text-slate-400 hover:text-slate-200"].join(" ")}>

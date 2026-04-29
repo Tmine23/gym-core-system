@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 import { AuthProvider } from "@/lib/auth";
 import { AuthGuard } from "./AuthGuard";
 import { Sidebar } from "./Sidebar";
@@ -8,6 +9,13 @@ import { Sidebar } from "./Sidebar";
 export function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isLoginPage = pathname === "/login";
+
+  // Register service worker for PWA
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+  }, []);
 
   return (
     <AuthProvider>

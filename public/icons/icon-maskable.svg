@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Full background (maskable icons need full bleed background) -->
+  <rect x="0" y="0" width="512" height="512" fill="#020617"/>
+  
+  <!-- Content within safe zone (80% = ~410px centered, so 51px padding) -->
+  <!-- Barbell/Dumbbell icon - scaled down and centered for safe zone -->
+  <!-- Center bar -->
+  <rect x="176" y="210" width="160" height="20" rx="10" fill="#76CB3E"/>
+  
+  <!-- Left weight plates -->
+  <rect x="148" y="184" width="28" height="72" rx="6" fill="#76CB3E"/>
+  <rect x="128" y="194" width="20" height="52" rx="5" fill="#76CB3E" opacity="0.8"/>
+  
+  <!-- Right weight plates -->
+  <rect x="336" y="184" width="28" height="72" rx="6" fill="#76CB3E"/>
+  <rect x="364" y="194" width="20" height="52" rx="5" fill="#76CB3E" opacity="0.8"/>
+  
+  <!-- Left end cap -->
+  <rect x="114" y="206" width="14" height="28" rx="4" fill="#76CB3E" opacity="0.6"/>
+  
+  <!-- Right end cap -->
+  <rect x="384" y="206" width="14" height="28" rx="4" fill="#76CB3E" opacity="0.6"/>
+  
+  <!-- GYM text -->
+  <text x="256" y="330" font-family="Arial, Helvetica, sans-serif" font-size="56" font-weight="bold" fill="white" text-anchor="middle" letter-spacing="6">GYM</text>
+</svg>

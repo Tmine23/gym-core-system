@@ -343,7 +343,7 @@ export default function CampanasPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 overflow-x-auto flex-nowrap">
         {([
           { id: "crear" as const, label: "Crear campaña" },
           { id: "historial" as const, label: "Historial de campañas", count: historial.length },
@@ -542,7 +542,7 @@ export default function CampanasPage() {
           ) : (
             <>
               {/* Stats rápidos */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-3">
                   <div className="text-[10px] uppercase tracking-widest text-slate-500">Total enviados</div>
                   <div className="text-2xl font-bold mt-1 text-brand-green">{historial.filter((h) => h.estado === "enviado").length}</div>

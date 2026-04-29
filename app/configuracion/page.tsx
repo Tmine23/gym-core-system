@@ -392,7 +392,7 @@ function SucursalesTab({ showToast, empleadoId, sucursalId }: { showToast: (msg:
   return (
     <>
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {[
           { label: "Total sucursales", value: rows.length, color: "text-slate-100" },
           { label: "Activas", value: rows.filter((r) => r.esta_activa).length, color: "text-brand-green" },
@@ -705,7 +705,7 @@ function EmpleadosTab({ showToast, empleadoId, sucursalId }: { showToast: (msg: 
   return (
     <>
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {[
           { label: "Total empleados", value: rows.length, color: "text-slate-100" },
           { label: "Activos", value: rows.filter((r) => r.es_activo).length, color: "text-brand-green" },
@@ -997,7 +997,7 @@ function RolesTab({ showToast, empleadoId, sucursalId }: { showToast: (msg: stri
   return (
     <>
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {[
           { label: "Total roles", value: rows.length, color: "text-slate-100" },
           { label: "Con permisos completos", value: rows.filter((r) => r.permiso_ver_finanzas && r.permiso_editar_usuarios && r.permiso_gestionar_asistencias).length, color: "text-brand-green" },
@@ -1459,8 +1459,8 @@ export default function ConfiguracionPage() {
       </div>
 
       {/* Tab bar */}
-      <div className="rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1 w-fit">
-        <div className="flex gap-1">
+      <div className="rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1 w-fit overflow-x-auto max-w-full">
+        <div className="flex gap-1 flex-nowrap">
           {TABS.map((tab) => (
             <button
               key={tab.id}

@@ -280,7 +280,7 @@ export default function AsistenciasPage() {
             </div>
 
             {/* Tabs */}
-            <div className="flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1 w-fit">
+            <div className="flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1 w-fit overflow-x-auto flex-nowrap max-w-full">
               {(["calendario", "heatmap", "hoy"] as const).map((t) => (
                 <button key={t} onClick={() => setTab(t)}
                   className={["rounded-xl px-5 py-2 text-sm font-semibold transition-all capitalize", tab === t ? "bg-brand-green/15 text-brand-green border border-brand-green/30" : "text-slate-400 hover:text-slate-200"].join(" ")}>
@@ -408,7 +408,7 @@ function GlobalView({ socios }: { socios: Socio[] }) {
   return (
     <div className="space-y-4">
       {/* Stats globales del mes */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {[
           { label: `Sesiones en ${MONTH_NAMES[now.getMonth()]}`, value: loading ? "…" : globalAsistencias.length },
           { label: "Socios activos este mes", value: loading ? "…" : new Set(globalAsistencias.map((a) => a.socio_id)).size },
@@ -422,7 +422,7 @@ function GlobalView({ socios }: { socios: Socio[] }) {
       </div>
 
       {/* Sub-tabs */}
-      <div className="flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1 w-fit">
+      <div className="flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1 w-fit overflow-x-auto flex-nowrap max-w-full">
         {([
           { key: "heatmap", label: "🌐 Heatmap global" },
           { key: "ranking", label: "🏆 Ranking" },
@@ -665,7 +665,7 @@ function CalendarioView({ byDate, viewYear, viewMonth, setViewYear, setViewMonth
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {[
           { label: "Días asistidos", value: monthStats.dias },
           { label: "Sesiones", value: monthStats.sesiones },

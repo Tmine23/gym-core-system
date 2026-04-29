@@ -15,7 +15,19 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Body Xtreme Gym OS",
-  description: "Body Xtreme Gym OS",
+  description: "Sistema de Inteligencia de Negocios para Gimnasios",
+  manifest: "/manifest.json",
+  themeColor: "#76CB3E",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Gym OS",
+  },
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 1,
+  },
 };
 
 export default function RootLayout({
