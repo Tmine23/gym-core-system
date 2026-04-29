@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import { SidebarNav } from "./SidebarNav";
+import { useAuth } from "@/lib/auth";
 
 function MenuIcon() {
   return <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h16M4 12h16M4 18h16" /></svg>;
@@ -11,10 +12,14 @@ function MenuIcon() {
 function XIcon() {
   return <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>;
 }
+function LogoutIcon() {
+  return <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>;
+}
 
 export function Sidebar() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
+  const { user, logout } = useAuth();
 
   // Cerrar sidebar al navegar en móvil
   useEffect(() => { setOpen(false); }, [pathname]);
@@ -64,6 +69,32 @@ export function Sidebar() {
           <div className="flex-1 px-3 py-4 overflow-y-auto">
             <SidebarNav />
           </div>
+
+          {/* User info + logout */}
+          {user && (
+            <div className="border-t border-[#1e293b] px-4 py-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-green/15 text-brand-green text-sm font-bold shrink-0">
+                  {user.nombre.charAt(0)}{user.apellido.charAt(0)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-200 truncate">
+                    {user.nombre} {user.apellido}
+                  </p>
+                  <p className="text-xs text-slate-500 truncate">
+                    {user.rol.nombre}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={logout}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#1e293b] bg-white/5 px-3 py-2 text-xs font-medium text-slate-400 transition-colors hover:bg-red-500/10 hover:border-red-500/20 hover:text-red-400"
+              >
+                <LogoutIcon />
+                Cerrar sesión
+              </button>
+            </div>
+          )}
         </div>
       </aside>
     </>

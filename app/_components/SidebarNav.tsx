@@ -2,12 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAuth } from "@/lib/auth";
 
 type NavItem = {
   href: string;
   label: string;
   soon?: boolean;
   icon: React.ReactNode;
+  /** Roles that can see this item. If undefined, all roles can see it. */
+  roles?: string[];
 };
 
 type NavGroup = {
@@ -40,6 +43,7 @@ const groups: NavGroup[] = [
       {
         href: "/recepcion",
         label: "Recepción",
+        roles: ["Admin", "Recepcionista", "Trainer"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -53,6 +57,7 @@ const groups: NavGroup[] = [
       {
         href: "/casilleros",
         label: "Casilleros",
+        roles: ["Admin", "Recepcionista"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -65,6 +70,7 @@ const groups: NavGroup[] = [
       {
         href: "/asistencias",
         label: "Asistencias",
+        roles: ["Admin", "Recepcionista", "Trainer"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -83,6 +89,7 @@ const groups: NavGroup[] = [
       {
         href: "/socios",
         label: "Socios",
+        roles: ["Admin", "Recepcionista"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -97,6 +104,7 @@ const groups: NavGroup[] = [
       {
         href: "/planes",
         label: "Planes",
+        roles: ["Admin", "Recepcionista"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -108,6 +116,7 @@ const groups: NavGroup[] = [
       {
         href: "/pagos",
         label: "Pagos",
+        roles: ["Admin", "Recepcionista"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -126,6 +135,7 @@ const groups: NavGroup[] = [
       {
         href: "/retencion",
         label: "Retención",
+        roles: ["Admin"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -137,6 +147,7 @@ const groups: NavGroup[] = [
       {
         href: "/campanas",
         label: "Campañas",
+        roles: ["Admin"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -149,6 +160,7 @@ const groups: NavGroup[] = [
         href: "/maquinas",
         label: "Máquinas",
         soon: true,
+        roles: ["Admin"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -162,6 +174,7 @@ const groups: NavGroup[] = [
       {
         href: "/caja",
         label: "Caja",
+        roles: ["Admin", "Recepcionista"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -180,6 +193,7 @@ const groups: NavGroup[] = [
       {
         href: "/analytics",
         label: "Analytics",
+        roles: ["Admin"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -197,6 +211,7 @@ const groups: NavGroup[] = [
       {
         href: "/configuracion",
         label: "Configuración",
+        roles: ["Admin"],
         icon: (
           <Icon>
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
@@ -212,56 +227,70 @@ const groups: NavGroup[] = [
 
 export function SidebarNav() {
   const pathname = usePathname();
+  const { user } = useAuth();
+
+  const roleName = user?.rol?.nombre || "";
 
   return (
     <nav className="space-y-5">
-      {groups.map((group) => (
-        <div key={group.label}>
-          <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-widest text-slate-600">
-            {group.label}
-          </p>
-          <div className="space-y-0.5">
-            {group.items.map((item) => {
-              const active = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.soon ? "#" : item.href}
-                  aria-disabled={item.soon}
-                  onClick={item.soon ? (e) => e.preventDefault() : undefined}
-                  className={[
-                    "group flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-all duration-150 border",
-                    item.soon
-                      ? "border-transparent text-slate-600 cursor-default select-none"
-                      : active
-                      ? "border-brand-green/20 bg-brand-green/8 text-slate-50"
-                      : "border-transparent text-slate-400 hover:bg-white/5 hover:text-slate-100",
-                  ].join(" ")}
-                >
-                  <span
+      {groups.map((group) => {
+        // Filter items based on role
+        const visibleItems = group.items.filter((item) => {
+          if (!item.roles) return true; // No restriction
+          if (!roleName) return true; // No role info, show all (fallback)
+          return item.roles.includes(roleName);
+        });
+
+        if (visibleItems.length === 0) return null;
+
+        return (
+          <div key={group.label}>
+            <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-widest text-slate-600">
+              {group.label}
+            </p>
+            <div className="space-y-0.5">
+              {visibleItems.map((item) => {
+                const active = pathname === item.href;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.soon ? "#" : item.href}
+                    aria-disabled={item.soon}
+                    onClick={item.soon ? (e) => e.preventDefault() : undefined}
                     className={[
-                      "transition-colors shrink-0",
+                      "group flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-all duration-150 border",
                       item.soon
-                        ? "text-slate-700"
+                        ? "border-transparent text-slate-600 cursor-default select-none"
                         : active
-                        ? "text-brand-green"
-                        : "text-slate-500 group-hover:text-brand-green",
+                        ? "border-brand-green/20 bg-brand-green/8 text-slate-50"
+                        : "border-transparent text-slate-400 hover:bg-white/5 hover:text-slate-100",
                     ].join(" ")}
                   >
-                    {item.icon}
-                  </span>
-                  <span className="flex-1 font-medium">{item.label}</span>
-                  {item.soon ? (
-                    <span className="rounded-full border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500">
-                      Pronto
+                    <span
+                      className={[
+                        "transition-colors shrink-0",
+                        item.soon
+                          ? "text-slate-700"
+                          : active
+                          ? "text-brand-green"
+                          : "text-slate-500 group-hover:text-brand-green",
+                      ].join(" ")}
+                    >
+                      {item.icon}
                     </span>
-                  ) : null}
-                </Link>
-              );
-            })}
+                    <span className="flex-1 font-medium">{item.label}</span>
+                    {item.soon ? (
+                      <span className="rounded-full border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+                        Pronto
+                      </span>
+                    ) : null}
+                  </Link>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </nav>
   );
 }
