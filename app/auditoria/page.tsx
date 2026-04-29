@@ -72,6 +72,66 @@ export default function AuditoriaPage() {
   // Expanded rows
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
 
+  // Archive state
+  const [archiveDownloaded, setArchiveDownloaded] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
+  const [showCleanConfirm, setShowCleanConfirm] = useState(false);
+
+  // Archive: download all logs as CSV
+  async function handleArchive() {
+    setArchiving(true);
+    const { data } = await supabase
+      .from("logs_sistema")
+      .select("id, empleado_id, sucursal_id, tabla_afectada, registro_id, operacion, valor_anterior, valor_nuevo, fecha_evento, empleados(nombre, apellido), sucursales(nombre)")
+      .order("fecha_evento", { ascending: true });
+
+    if (!data || data.length === 0) { setArchiving(false); return; }
+
+    const rows = (data as unknown as LogEntry[]).map((l) => ({
+      id: l.id,
+      fecha: l.fecha_evento,
+      empleado: l.empleados ? `${l.empleados.nombre} ${l.empleados.apellido}` : "",
+      sucursal: l.sucursales?.nombre ?? "",
+      tabla: l.tabla_afectada,
+      registro_id: l.registro_id ?? "",
+      operacion: l.operacion,
+      valor_anterior: l.valor_anterior ? JSON.stringify(l.valor_anterior) : "",
+      valor_nuevo: l.valor_nuevo ? JSON.stringify(l.valor_nuevo) : "",
+    }));
+
+    const headers = ["ID", "Fecha", "Empleado", "Sucursal", "Tabla", "Registro ID", "Operación", "Valor Anterior", "Valor Nuevo"];
+    const csvContent = [
+      headers.join(","),
+      ...rows.map((r) => [
+        r.id, `"${r.fecha}"`, `"${r.empleado}"`, `"${r.sucursal}"`, r.tabla, r.registro_id, r.operacion,
+        `"${r.valor_anterior.replace(/"/g, '""')}"`, `"${r.valor_nuevo.replace(/"/g, '""')}"`,
+      ].join(",")),
+    ].join("\n");
+
+    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `auditoria_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    setArchiving(false);
+    setArchiveDownloaded(true);
+  }
+
+  // Clean: delete all logs (only after archive download)
+  async function handleClean() {
+    setCleaning(true);
+    await supabase.from("logs_sistema").delete().neq("id", 0);
+    setCleaning(false);
+    setShowCleanConfirm(false);
+    setArchiveDownloaded(false);
+    setPage(0);
+    void cargar();
+  }
+
   const cargar = useCallback(async () => {
     setLoading(true);
 
@@ -128,10 +188,69 @@ export default function AuditoriaPage() {
     <div className="space-y-5">
       {/* Header */}
       <div className="rounded-2xl border border-[#1e293b] bg-gradient-to-b from-white/5 to-transparent p-6">
-        <div className="section-kicker">Sistema</div>
-        <h1 className="section-title">Auditoría</h1>
-        <p className="section-description">Registro de todas las operaciones del sistema</p>
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <div className="section-kicker">Sistema</div>
+            <h1 className="section-title">Auditoría</h1>
+            <p className="section-description">Registro de todas las operaciones del sistema</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">{totalCount} registros</span>
+            <button
+              onClick={() => void handleArchive()}
+              disabled={archiving || totalCount === 0}
+              className="flex items-center gap-2 rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:text-slate-100 disabled:opacity-40 transition-all"
+            >
+              {archiving ? "Descargando…" : "📥 Archivar CSV"}
+            </button>
+            <button
+              onClick={() => setShowCleanConfirm(true)}
+              disabled={!archiveDownloaded || cleaning}
+              className={[
+                "flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold transition-all",
+                archiveDownloaded
+                  ? "border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20"
+                  : "border border-[#1e293b] bg-white/5 text-slate-600 cursor-not-allowed",
+              ].join(" ")}
+              title={!archiveDownloaded ? "Primero descargá el archivo CSV" : "Limpiar registros archivados"}
+            >
+              🗑️ Limpiar
+            </button>
+          </div>
+        </div>
+        {archiveDownloaded && (
+          <div className="mt-3 rounded-xl border border-brand-green/20 bg-brand-green/5 px-4 py-2 text-xs text-brand-green">
+            ✓ Archivo descargado. Ahora podés limpiar los registros de la base de datos.
+          </div>
+        )}
       </div>
+
+      {/* Clean confirmation modal */}
+      {showCleanConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowCleanConfirm(false)} />
+          <div className="relative w-full max-w-sm rounded-[28px] border border-[#1e293b] bg-[#020617] shadow-2xl p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-red-500/25 bg-red-500/10 text-red-400 text-lg">⚠️</span>
+              <div>
+                <p className="text-sm font-bold text-slate-100">¿Limpiar todos los registros?</p>
+                <p className="text-xs text-slate-400">Se eliminarán {totalCount} registros de la base de datos.</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-500">Esta acción no se puede deshacer. Asegurate de que el archivo CSV descargado esté guardado correctamente.</p>
+            <div className="flex gap-2">
+              <button onClick={() => setShowCleanConfirm(false)}
+                className="flex-1 rounded-2xl border border-[#1e293b] bg-white/5 py-2.5 text-sm font-semibold text-slate-300 hover:text-slate-100 transition-all">
+                Cancelar
+              </button>
+              <button onClick={() => void handleClean()} disabled={cleaning}
+                className="flex-1 rounded-2xl border border-red-500/30 bg-red-500/15 py-2.5 text-sm font-bold text-red-400 hover:bg-red-500/25 disabled:opacity-50 transition-all">
+                {cleaning ? "Limpiando…" : "Sí, limpiar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="rounded-2xl border border-[#1e293b] bg-white/5 p-4">
