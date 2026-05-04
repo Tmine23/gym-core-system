@@ -39,6 +39,7 @@ const PAISES: Record<string, { name: string; flag: string }> = {
 const TEMPLATES = [
   { id: "custom", label: "✏️ Personalizado", text: "" },
   { id: "promo", label: "🎉 Promoción general", text: "Hola {nombre}, tenemos una promoción especial para ti. ¡Visítanos y aprovecha! 💪🏋️" },
+  { id: "hora_valle", label: "⏰ Promoción hora valle", text: "Hola {nombre}, ¿sabías que tenemos horarios con menos gente? 🎯 Entrena más cómodo de 6:00 a 10:00 AM con 20% de descuento en tu próxima renovación. ¡Aprovecha esta oferta exclusiva! 💪" },
   { id: "mujer", label: "👩 Día de la mujer", text: "Hola {nombre}, ¡feliz día! 🌸 Como mujer fuerte que eres, te regalamos un descuento especial. ¡Te esperamos!" },
   { id: "aniversario", label: "🎂 Aniversario del gym", text: "Hola {nombre}, estamos de aniversario y queremos celebrar contigo. ¡Descuentos especiales esta semana! 🎉" },
   { id: "veterano", label: "🏆 Socios veteranos", text: "Hola {nombre}, gracias por ser parte de nuestra familia desde hace tanto tiempo. ¡Tienes un beneficio exclusivo esperándote! 🏆" },
@@ -248,6 +249,15 @@ export default function CampanasPage() {
 
   // ── Modal ──
   const [modalEnvio, setModalEnvio] = useState(false);
+
+  // Detectar template desde URL params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const templateParam = params.get("template");
+    if (templateParam && TEMPLATES.some((t) => t.id === templateParam)) {
+      setTemplateId(templateParam);
+    }
+  }, []);
 
   // Países disponibles
   const paisesDisponibles = useMemo(() => {

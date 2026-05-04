@@ -196,7 +196,7 @@ function generarInsights(data: {
         titulo: `Horario ${valle.hora}:00h tiene muy baja ocupación (${porcentaje}% vs hora pico)`,
         descripcion: `Solo ${valle.total} asistencias vs ${pico.total} en hora pico (${pico.hora}:00h). Ofrece promociones "hora valle" para redistribuir la demanda y optimizar el uso de las instalaciones.`,
         metrica: `${valle.total} vs ${pico.total} asistencias`,
-        accion: { label: "Crear campaña hora valle", href: "/campanas" },
+        accion: { label: "Crear campaña hora valle", href: "/campanas?template=hora_valle" },
       });
     }
   }
