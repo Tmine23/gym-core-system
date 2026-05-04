@@ -185,16 +185,18 @@ function generarInsights(data: {
   }
 
   // 6. Oportunidad hora valle
-  if (data.horasValle.length > 0) {
+  if (data.horasValle.length > 0 && data.horasPico.length > 0) {
     const valle = data.horasValle[0];
     const pico = data.horasPico[0];
-    if (pico && valle.total < pico.total * 0.3) {
+    // Mostrar si el valle tiene menos del 40% de asistencias que el pico
+    if (valle.total < pico.total * 0.4) {
+      const porcentaje = Math.round((valle.total / pico.total) * 100);
       insights.push({
-        id: "hora-valle", tipo: "oportunidad", prioridad: "baja",
-        titulo: `Horario ${valle.hora}:00 tiene muy baja ocupación`,
-        descripcion: `Solo ${valle.total} asistencias vs ${pico.total} en hora pico (${pico.hora}:00). Ofrece descuento "hora valle" para redistribuir la demanda.`,
+        id: "hora-valle", tipo: "oportunidad", prioridad: "media",
+        titulo: `Horario ${valle.hora}:00h tiene muy baja ocupación (${porcentaje}% vs hora pico)`,
+        descripcion: `Solo ${valle.total} asistencias vs ${pico.total} en hora pico (${pico.hora}:00h). Ofrece promociones "hora valle" para redistribuir la demanda y optimizar el uso de las instalaciones.`,
         metrica: `${valle.total} vs ${pico.total} asistencias`,
-        accion: null,
+        accion: { label: "Crear campaña hora valle", href: "/campanas" },
       });
     }
   }
