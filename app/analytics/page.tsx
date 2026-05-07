@@ -699,24 +699,33 @@ export default function AnalyticsPage() {
     <div className="space-y-5">
       {/* Header */}
       <div className="rounded-2xl border border-[#1e293b] bg-gradient-to-b from-white/5 to-transparent p-6">
-        <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-col gap-4">
           <div>
             <div className="section-kicker">Inteligencia de Negocios</div>
             <h1 className="section-title">Analytics & Insights</h1>
             <p className="section-description">Análisis descriptivo, predictivo y prescriptivo</p>
           </div>
-          <div className="flex items-center gap-2">
+          
+          {/* Controles superiores */}
+          <div className="flex flex-wrap items-center gap-2">
             <SucursalSelector value={selectedSucursal} onChange={setSelectedSucursal} allowAll={true} />
-            <div className="flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1 overflow-x-auto flex-nowrap">
+            <div className="flex gap-1 rounded-2xl border border-[#1e293b] bg-[#0b1220] p-1">
               {(["6m", "12m", "todo"] as Periodo[]).map((p) => (
                 <button key={p} onClick={() => setPeriodo(p)}
-                  className={["rounded-xl px-3 py-1.5 text-xs font-semibold transition-all",
+                  className={["rounded-xl px-3 py-1.5 text-xs font-semibold transition-all whitespace-nowrap",
                     periodo === p ? "bg-brand-green/15 text-brand-green border border-brand-green/30" : "text-slate-400 hover:text-slate-200"].join(" ")}>
                   {p === "todo" ? "Todo" : p}
                 </button>
               ))}
             </div>
-            <button onClick={() => void cargar()} className="flex items-center gap-2 rounded-2xl border border-[#1e293b] bg-white/5 px-3 py-2.5 text-slate-300 hover:text-slate-100"><RefreshIcon /></button>
+            <button onClick={() => void cargar()} className="flex items-center gap-2 rounded-2xl border border-[#1e293b] bg-white/5 px-3 py-2.5 text-slate-300 hover:text-slate-100">
+              <RefreshIcon />
+              <span className="hidden sm:inline text-sm font-semibold">Actualizar</span>
+            </button>
+          </div>
+
+          {/* Botones de descarga */}
+          <div className="flex flex-wrap items-center gap-2">
             <button onClick={() => {
               const hoy = new Date().toLocaleDateString("es-BO", { day: "2-digit", month: "long", year: "numeric", timeZone: "America/La_Paz" });
               const reporteData: ReporteData = {
@@ -748,8 +757,9 @@ export default function AnalyticsPage() {
               void generarReporteBI(reporteData);
             }}
               disabled={loading}
-              className="flex items-center gap-2 rounded-2xl bg-brand-green px-4 py-2.5 text-sm font-bold text-[#020617] hover:bg-brand-green/90 disabled:opacity-50 transition-all">
-              <DownloadIcon /> Reporte PDF
+              className="flex items-center gap-2 rounded-2xl bg-brand-green px-4 py-2.5 text-sm font-bold text-[#020617] hover:bg-brand-green/90 disabled:opacity-50 transition-all whitespace-nowrap">
+              <DownloadIcon /> 
+              <span className="hidden sm:inline">Reporte</span> PDF
             </button>
             {selectedSucursal === null && comparativa.length > 0 && (
               <button onClick={() => {
@@ -776,8 +786,9 @@ export default function AnalyticsPage() {
                 });
               }}
                 disabled={loading}
-                className="flex items-center gap-2 rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:bg-white/10 disabled:opacity-50 transition-all">
-                <DownloadIcon /> Comparativo
+                className="flex items-center gap-2 rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:bg-white/10 disabled:opacity-50 transition-all whitespace-nowrap">
+                <DownloadIcon /> 
+                <span className="hidden sm:inline">PDF</span> Comparativo
               </button>
             )}
             <button onClick={() => {
@@ -803,8 +814,9 @@ export default function AnalyticsPage() {
               });
             }}
               disabled={loading}
-              className="flex items-center gap-2 rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:bg-white/10 disabled:opacity-50 transition-all">
-              <DownloadIcon /> Cierre Mensual
+              className="flex items-center gap-2 rounded-2xl border border-[#1e293b] bg-white/5 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:bg-white/10 disabled:opacity-50 transition-all whitespace-nowrap">
+              <DownloadIcon /> 
+              <span className="hidden sm:inline">PDF</span> Cierre Mensual
             </button>
           </div>
         </div>
