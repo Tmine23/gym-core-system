@@ -3124,7 +3124,7 @@ erDiagram
     
     facturas {
         int id PK
-        int pago_id FK_UK
+        int pago_id FK "UNIQUE"
         int numero
         varchar nit_ci_comprador
         varchar razon_social_comprador
@@ -3144,7 +3144,7 @@ erDiagram
         int id PK
         int socio_id FK
         int sucursal_id FK
-        int casillero_id FK_NULL
+        int casillero_id FK "NULLABLE"
         timestamp fecha_entrada
         timestamp fecha_salida
     }
